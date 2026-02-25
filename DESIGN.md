@@ -35,15 +35,81 @@ Synchrotron-CD is a lightweight, fast, and scalable GitOps continuous deployment
 - **Composable architecture**: Individual components can be used independently
 - **Plugin extensibility**: Support multiple templating engines and deployment strategies without core modifications
 
+## System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Synchrotron-CD System                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  ┌──────────────────┐         ┌──────────────────┐              │
+│  │  Webhook Server  │         │   Cluster APIs   │              │
+│  │  (GitHub, etc.)  │         │  (kubectl)       │              │
+│  └────────┬─────────┘         └────────┬─────────┘              │
+│           │                            │                        │
+│           ▼                            ▼                        │
+│  ┌──────────────────────────────────────────────┐               │
+│  │     Webhook & Event System                   │               │
+│  │ (Receives webhooks, de-dupes, triggers sync) │               │
+│  └────────┬─────────────────────────────────────┘               │
+│           │                                                     │
+│           ▼                                                     │
+│  ┌────────────────────────────────────────────────────────┐    │
+│  │     Reconciliation Engine (State Tracking)             │    │
+│  │  - Computes desired vs actual state                    │    │
+│  │  - Decides sync actions                               │    │
+│  │  - Runs every 30-60s (auto-heal)                       │    │
+│  └──┬───────┬─────────────────────────┬────────┬──────────┘    │
+│     │       │                         │        │               │
+│  ┌──▼──┐ ┌──▼──┐                   ┌──▼──┐  ┌─▼──┐            │
+│  │ Git │ │Plugin│                  │Cache│  │RDB │            │
+│  │Sync │ │System│                  │ LRU │  │    │            │
+│  └──┬──┘ └──┬──┘                   └─────┘  └────┘            │
+│     │       │                                                  │
+│     └───┬───┘                                                  │
+│         ▼                                                      │
+│  ┌────────────────────────────────────────────┐               │
+│  │   Manifest Cache (In-Memory, LRU)           │               │
+│  │   - Stores parsed/rendered manifests        │               │
+│  │   - Max 350-400MB, stays <512MB total       │               │
+│  └────────────────────────────────────────────┘               │
+│         │                                                      │
+│         ▼                                                      │
+│  ┌────────────────────────────────────────────┐               │
+│  │   Deployment Orchestrator                  │               │
+│  │   - Applies manifests to clusters          │               │
+│  │   - Monitors progress                      │               │
+│  │   - Handles rollbacks                      │               │
+│  └────────┬─────────────────────────────────┘               │
+│           │                                                   │
+│           ▼                                                   │
+│  ┌────────────────────────────────────────────┐               │
+│  │   Cluster Connector & Auth                 │               │
+│  │   - Manages connections to K8s clusters    │               │
+│  │   - Handles auth (kubeconfig, OIDC, etc.)  │               │
+│  │   - Connection pooling & health checks     │               │
+│  └────────┬─────────────────────────────────┘               │
+│           │                                                   │
+│           ▼                                                   │
+│       Kubernetes Clusters                                     │
+│           (prod, staging, etc.)                              │
+│                                                               │
+└─────────────────────────────────────────────────────────────────┘
+
+[RocksDB State Storage] ◄──► All components store/read state
+```
+
 ## Design Areas (To Be Detailed)
 
 ### Core Components
-- [ ] Git synchronization engine
-- [ ] Application state reconciliation
-- [ ] Plugin system for templating/rendering (Helm, Kustomize, Jsonnet, etc.)
-- [ ] Deployment orchestration
-- [ ] Webhook and event handling
-- [ ] In-memory manifest cache with LRU eviction
+- [x] Git Synchronization Engine (synchrotron-cd-h48.1)
+- [x] Manifest Cache with LRU Eviction (synchrotron-cd-h48.2)
+- [x] Plugin System - Local & Sidecar (synchrotron-cd-h48.3)
+- [x] Reconciliation Engine - State Tracking (synchrotron-cd-h48.4)
+- [x] Deployment Orchestrator (synchrotron-cd-h48.5)
+- [x] Webhook & Event System (synchrotron-cd-h48.6)
+- [x] RocksDB State Storage (synchrotron-cd-h48.7)
+- [x] Cluster Connector & Auth (synchrotron-cd-h48.8)
 
 ### Technology Decisions
 - [x] Language: Rust (zero-cost abstractions, memory efficiency, minimal binary size)
