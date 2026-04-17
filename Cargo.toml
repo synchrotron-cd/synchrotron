@@ -4,6 +4,7 @@ members = [
     "crates/synchrotron-types",
     "crates/synchrotron-core",
     "crates/synchrotron-git",
+    "crates/synchrotron-kube",
     "crates/synchrotron-server",
     "crates/synchrotron-cli",
 ]
@@ -18,6 +19,7 @@ license = "Apache-2.0"
 synchrotron-types = { path = "crates/synchrotron-types" }
 synchrotron-core = { path = "crates/synchrotron-core" }
 synchrotron-git = { path = "crates/synchrotron-git" }
+synchrotron-kube = { path = "crates/synchrotron-kube" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
