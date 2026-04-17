@@ -8,9 +8,11 @@
 mod client;
 mod config;
 mod error;
+pub mod health;
 
 pub use client::KubeClient;
 pub use config::{ClusterConfig, ClusterName};
 pub use error::KubeError;
+pub use health::{HealthConfig, HealthMonitor, HealthState};
 
 pub type Result<T> = std::result::Result<T, KubeError>;
