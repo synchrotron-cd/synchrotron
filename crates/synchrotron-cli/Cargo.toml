@@ -1,0 +1,17 @@
+[package]
+name = "synchrotron-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "synchrotron"
+path = "src/main.rs"
+
+[dependencies]
+synchrotron-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+clap = { version = "4", features = ["derive", "env"] }
+reqwest = { version = "0.12", features = ["json"] }

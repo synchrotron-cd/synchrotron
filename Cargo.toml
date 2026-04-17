@@ -1,0 +1,39 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/synchrotron-types",
+    "crates/synchrotron-core",
+    "crates/synchrotron-git",
+    "crates/synchrotron-server",
+    "crates/synchrotron-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+# Internal crates
+synchrotron-types = { path = "crates/synchrotron-types" }
+synchrotron-core = { path = "crates/synchrotron-core" }
+synchrotron-git = { path = "crates/synchrotron-git" }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Async
+tokio = { version = "1", features = ["full"] }
+
+# Time and IDs
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
