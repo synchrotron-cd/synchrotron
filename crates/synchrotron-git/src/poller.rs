@@ -110,6 +110,14 @@ impl Poller {
     pub fn shutdown(&self) {
         self.handle.abort();
     }
+
+    /// Returns the [`Notify`] this poller wakes on for `trigger()`.
+    /// Used by [`crate::triggers::RepoTriggers`] to hand the same
+    /// trigger handle to external callers (e.g. webhook receivers)
+    /// without taking the whole [`Poller`].
+    pub fn trigger_handle(&self) -> Arc<Notify> {
+        self.trigger.clone()
+    }
 }
 
 impl Drop for Poller {

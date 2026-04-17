@@ -14,6 +14,7 @@ mod error;
 pub mod github_app;
 pub mod poller;
 mod repo;
+mod triggers;
 mod workspace;
 
 pub use client::{FetchResult, GitClient, Sha};
@@ -21,6 +22,7 @@ pub use credentials::Credentials;
 pub use error::GitError;
 pub use poller::{PollEvent, Poller, PollerConfig};
 pub use repo::{Repo, RepoId};
+pub use triggers::RepoTriggers;
 pub use workspace::Workspace;
 
 pub type Result<T> = std::result::Result<T, GitError>;
