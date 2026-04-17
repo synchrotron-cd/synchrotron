@@ -1,4 +1,7 @@
 {
-  "database": "beads.db",
-  "jsonl_export": "issues.jsonl"
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "synchrotron_cd",
+  "project_id": "89183294-d55c-40db-ad24-fc8d36be9619"
 }
