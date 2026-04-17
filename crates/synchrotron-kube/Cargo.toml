@@ -9,8 +9,9 @@ serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tokio.workspace = true
-kube = { version = "0.95", default-features = false, features = ["client", "rustls-tls"] }
+kube = { version = "0.95", default-features = false, features = ["client", "rustls-tls", "runtime"] }
 k8s-openapi = { version = "0.23", default-features = false, features = ["latest"] }
+futures = "0.3"
 
 [dev-dependencies]
 tempfile = "3"
