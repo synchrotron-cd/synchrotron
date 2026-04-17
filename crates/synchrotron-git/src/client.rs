@@ -213,6 +213,14 @@ pub(crate) fn select_credential(
             };
             Cred::username(user)
         }
+        // GitHubApp must be resolved to HttpBasic before reaching this
+        // sync callback (see crate::github_app::TokenCache). Failing
+        // here surfaces the misuse rather than silently authenticating
+        // anonymously.
+        Credentials::GitHubApp { .. } => Err(git2::Error::from_str(
+            "GitHubApp credentials must be exchanged for an installation token \
+             via github_app::TokenCache before fetch",
+        )),
         _ => Cred::default(),
     }
 }

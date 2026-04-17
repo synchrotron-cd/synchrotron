@@ -11,6 +11,7 @@
 mod client;
 mod credentials;
 mod error;
+pub mod github_app;
 mod repo;
 mod workspace;
 

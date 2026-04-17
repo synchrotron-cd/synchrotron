@@ -33,6 +33,19 @@ pub enum Credentials {
     SshAgent {
         username: String,
     },
+    /// GitHub App installation. Note: this variant is *not* directly
+    /// consumed by the libgit2 callback — it must be exchanged for an
+    /// installation token via
+    /// [`crate::github_app::TokenCache`] and presented as
+    /// [`Credentials::HttpBasic`] (`username = "x-access-token"`,
+    /// `password = token`) before the synchronous fetch call.
+    GitHubApp {
+        app_id: u64,
+        installation_id: u64,
+        private_key_path: PathBuf,
+        #[serde(default)]
+        api_base: Option<String>,
+    },
 }
 
 impl Default for Credentials {
