@@ -2318,6 +2318,7 @@ dependencies = [
  "git2",
  "hex",
  "jsonwebtoken",
+ "rand",
  "serde",
  "serde_json",
  "sha2",

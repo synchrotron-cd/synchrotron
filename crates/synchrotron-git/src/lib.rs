@@ -12,12 +12,14 @@ mod client;
 mod credentials;
 mod error;
 pub mod github_app;
+pub mod poller;
 mod repo;
 mod workspace;
 
 pub use client::{FetchResult, GitClient, Sha};
 pub use credentials::Credentials;
 pub use error::GitError;
+pub use poller::{PollEvent, Poller, PollerConfig};
 pub use repo::{Repo, RepoId};
 pub use workspace::Workspace;
 
