@@ -24,4 +24,7 @@ pub enum KubeError {
 
     #[error("context {0:?} not found in kubeconfig")]
     ContextNotFound(String),
+
+    #[error("cluster {0:?} is already registered")]
+    AlreadyRegistered(String),
 }

@@ -10,11 +10,13 @@ mod config;
 mod error;
 pub mod health;
 pub mod informer;
+mod registry;
 
 pub use client::KubeClient;
 pub use config::{ClusterConfig, ClusterName};
 pub use error::KubeError;
 pub use health::{HealthConfig, HealthMonitor, HealthState};
 pub use informer::{Informer, InformerConfig, InformerEvent};
+pub use registry::ClusterRegistry;
 
 pub type Result<T> = std::result::Result<T, KubeError>;
