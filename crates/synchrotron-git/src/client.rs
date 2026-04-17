@@ -166,22 +166,55 @@ impl GitClient {
 fn build_callbacks(credentials: Credentials) -> RemoteCallbacks<'static> {
     let mut callbacks = RemoteCallbacks::new();
     callbacks.credentials(move |_url, username_from_url, allowed| {
-        match &credentials {
-            Credentials::HttpBasic { username, password }
-                if allowed.contains(CredentialType::USER_PASS_PLAINTEXT) =>
-            {
-                Cred::userpass_plaintext(username, password)
-            }
-            // libgit2 invokes the credentials callback for username probing
-            // on some transports (e.g. SSH); satisfy it with a default so
-            // unauthenticated HTTP(S) clones still work.
-            _ if allowed.contains(CredentialType::USERNAME) => {
-                Cred::username(username_from_url.unwrap_or(""))
-            }
-            _ => Cred::default(),
-        }
+        select_credential(&credentials, username_from_url, allowed)
     });
     callbacks
+}
+
+/// Translate a [`Credentials`] choice into a libgit2 [`Cred`] for the
+/// allowed credential types libgit2 reports for the current transport.
+/// Extracted from the callback so it can be unit-tested without a
+/// remote.
+pub(crate) fn select_credential(
+    credentials: &Credentials,
+    username_from_url: Option<&str>,
+    allowed: CredentialType,
+) -> std::result::Result<Cred, git2::Error> {
+    match credentials {
+        Credentials::HttpBasic { username, password }
+            if allowed.contains(CredentialType::USER_PASS_PLAINTEXT) =>
+        {
+            Cred::userpass_plaintext(username, password)
+        }
+        Credentials::SshKey {
+            username,
+            private_key,
+            public_key,
+            passphrase,
+        } if allowed.contains(CredentialType::SSH_KEY) => Cred::ssh_key(
+            username,
+            public_key.as_deref(),
+            private_key,
+            passphrase.as_deref(),
+        ),
+        Credentials::SshAgent { username } if allowed.contains(CredentialType::SSH_KEY) => {
+            Cred::ssh_key_from_agent(username)
+        }
+        // libgit2 invokes the credentials callback for username probing
+        // on some transports (e.g. SSH); satisfy it with a default so
+        // unauthenticated HTTP(S) clones still work, and SSH gets the
+        // user it needs before the SSH_KEY callback round-trip.
+        _ if allowed.contains(CredentialType::USERNAME) => {
+            let user = match credentials {
+                Credentials::SshKey { username, .. } | Credentials::SshAgent { username } => {
+                    username.as_str()
+                }
+                _ => username_from_url.unwrap_or(""),
+            };
+            Cred::username(user)
+        }
+        _ => Cred::default(),
+    }
 }
 
 fn read_branch_head(repo: &Repository, branch: &str) -> Result<Sha> {
