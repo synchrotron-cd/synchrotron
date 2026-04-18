@@ -30,4 +30,7 @@ pub enum KubeError {
 
     #[error("cluster {0:?} is already registered")]
     AlreadyRegistered(String),
+
+    #[error("OIDC refresh failed: {0}")]
+    OidcRefresh(String),
 }

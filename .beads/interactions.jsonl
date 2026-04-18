@@ -9,3 +9,4 @@
 {"id":"int-d9b65435","kind":"field_change","created_at":"2026-04-17T22:53:39.677152276Z","actor":"Jesse Sightler","issue_id":"synchrotron-cd-h48.1.5","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
 {"id":"int-9d11471c","kind":"field_change","created_at":"2026-04-18T05:27:31.497189884Z","actor":"Jesse Sightler","issue_id":"synchrotron-cd-h48.1.6","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
 {"id":"int-a5da39a5","kind":"field_change","created_at":"2026-04-18T05:50:57.716204946Z","actor":"Jesse Sightler","issue_id":"synchrotron-cd-h48.8.2","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-5a4b0191","kind":"field_change","created_at":"2026-04-18T05:52:26.807623976Z","actor":"Jesse Sightler","issue_id":"synchrotron-cd-h48.8.3","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
