@@ -7,7 +7,7 @@
 
 use std::fs;
 
-use synchrotron_kube::{ClusterConfig, KubeClient, KubeError};
+use synchrotron_kube::{AuthSource, ClusterConfig, KubeClient, KubeError};
 use tempfile::TempDir;
 
 const MINIMAL_KUBECONFIG: &str = r#"apiVersion: v1
@@ -71,6 +71,48 @@ async fn missing_kubeconfig_reports_clearly() {
         matches!(err, KubeError::KubeconfigMissing(_)),
         "got: {err:?}"
     );
+}
+
+#[tokio::test]
+async fn in_cluster_builder_sets_source() {
+    let cfg = ClusterConfig::in_cluster("self");
+    assert!(matches!(cfg.source, AuthSource::InCluster));
+    // with_context is a no-op for in-cluster — it has no kubeconfig context.
+    let cfg = cfg.with_context("ignored");
+    assert!(matches!(cfg.source, AuthSource::InCluster));
+}
+
+/// Without the projected SA token / env vars, `connect` for an
+/// explicit in-cluster config must fail loudly rather than silently
+/// degrading. We clear the env vars to simulate a non-cluster host.
+#[tokio::test]
+async fn in_cluster_connect_outside_cluster_errors() {
+    // SAFETY: tests in this binary run in separate tokio runtimes but
+    // share the process env. The vars we touch are only read by
+    // kube-rs at the top of `Config::incluster_env`, so removing them
+    // for the duration of this test cannot affect the other tests
+    // (which use explicit kubeconfigs and never call `incluster()`).
+    let saved_host = std::env::var("KUBERNETES_SERVICE_HOST").ok();
+    let saved_port = std::env::var("KUBERNETES_SERVICE_PORT").ok();
+    unsafe {
+        std::env::remove_var("KUBERNETES_SERVICE_HOST");
+        std::env::remove_var("KUBERNETES_SERVICE_PORT");
+    }
+
+    let cfg = ClusterConfig::in_cluster("self");
+    let res = KubeClient::connect(&cfg).await;
+
+    unsafe {
+        if let Some(v) = saved_host {
+            std::env::set_var("KUBERNETES_SERVICE_HOST", v);
+        }
+        if let Some(v) = saved_port {
+            std::env::set_var("KUBERNETES_SERVICE_PORT", v);
+        }
+    }
+
+    let err = res.expect_err("expected in-cluster connect to fail off-cluster");
+    assert!(matches!(err, KubeError::InCluster(_)), "got: {err:?}");
 }
 
 #[tokio::test]

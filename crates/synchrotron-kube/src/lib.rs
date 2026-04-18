@@ -13,7 +13,7 @@ pub mod informer;
 mod registry;
 
 pub use client::KubeClient;
-pub use config::{ClusterConfig, ClusterName};
+pub use config::{AuthSource, ClusterConfig, ClusterName};
 pub use error::KubeError;
 pub use health::{HealthConfig, HealthMonitor, HealthState};
 pub use informer::{Informer, InformerConfig, InformerEvent};

@@ -2,16 +2,16 @@ use kube::config::{KubeConfigOptions, Kubeconfig};
 use kube::{Client, Config};
 use tracing::{debug, info};
 
-use crate::config::ClusterConfig;
+use crate::config::{AuthSource, ClusterConfig};
 use crate::error::KubeError;
 use crate::Result;
 
 /// Handle to a single Kubernetes cluster.
 ///
-/// Wraps a [`kube::Client`] with the operator-facing cluster name and the
-/// kubeconfig context that produced it, so logging/metrics can attribute
-/// requests without leaking the raw kubeconfig. Downstream sub-issues
-/// (health probes, informers, etc.) build on `self.client()`.
+/// Wraps a [`kube::Client`] with the operator-facing cluster name and a
+/// short label describing how the client was authenticated, for
+/// logs/metrics. Downstream sub-issues (health probes, informers, etc.)
+/// build on `self.client()`.
 #[derive(Clone)]
 pub struct KubeClient {
     name: String,
@@ -20,22 +20,23 @@ pub struct KubeClient {
 }
 
 impl KubeClient {
-    /// Build a client from a [`ClusterConfig`]. This parses the
-    /// kubeconfig and constructs HTTP/TLS infrastructure, but does not
-    /// perform any request against the cluster.
+    /// Build a client from a [`ClusterConfig`]. Parses the credentials
+    /// source (kubeconfig file, projected ServiceAccount token, or
+    /// ambient discovery) and constructs HTTP/TLS infrastructure, but
+    /// does not perform any request against the cluster.
     pub async fn connect(cfg: &ClusterConfig) -> Result<Self> {
-        let (kube_config, context) = match cfg.kubeconfig_path() {
-            Some(path) => {
+        let (kube_config, context) = match &cfg.source {
+            AuthSource::Kubeconfig { path, context } => {
                 if !path.exists() {
-                    return Err(KubeError::KubeconfigMissing(path.to_path_buf()));
+                    return Err(KubeError::KubeconfigMissing(path.clone()));
                 }
                 let kubeconfig =
                     Kubeconfig::read_from(path).map_err(|source| KubeError::KubeconfigRead {
-                        path: path.to_path_buf(),
+                        path: path.clone(),
                         source,
                     })?;
 
-                let resolved_context = resolve_context(&kubeconfig, cfg.context.as_deref())?;
+                let resolved_context = resolve_context(&kubeconfig, context.as_deref())?;
                 let opts = KubeConfigOptions {
                     context: Some(resolved_context.clone()),
                     ..Default::default()
@@ -43,12 +44,15 @@ impl KubeClient {
                 let config = Config::from_custom_kubeconfig(kubeconfig, &opts).await?;
                 (config, resolved_context)
             }
-            None => {
+            AuthSource::InCluster => {
+                let config = Config::incluster().map_err(KubeError::InCluster)?;
+                (config, "<in-cluster-sa>".to_string())
+            }
+            AuthSource::Default { context } => {
                 let config = Config::infer().await?;
-                let context = cfg
-                    .context
+                let context = context
                     .clone()
-                    .unwrap_or_else(|| "<default-discovery>".to_string());
+                    .unwrap_or_else(|| "<default-discovery>".into());
                 (config, context)
             }
         };

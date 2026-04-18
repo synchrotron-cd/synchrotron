@@ -19,6 +19,9 @@ pub enum KubeError {
     #[error("failed to infer in-cluster config: {0}")]
     Infer(#[from] kube::config::InferConfigError),
 
+    #[error("failed to load in-cluster ServiceAccount config: {0}")]
+    InCluster(#[source] kube::config::InClusterError),
+
     #[error("failed to build kube client: {0}")]
     ClientBuild(#[from] kube::Error),
 
