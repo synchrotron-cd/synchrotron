@@ -33,4 +33,7 @@ pub enum KubeError {
 
     #[error("OIDC refresh failed: {0}")]
     OidcRefresh(String),
+
+    #[error("exec credential plugin failed: {0}")]
+    ExecPlugin(String),
 }

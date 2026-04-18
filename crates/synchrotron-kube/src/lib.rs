@@ -8,6 +8,7 @@
 mod client;
 mod config;
 mod error;
+pub mod exec;
 pub mod health;
 pub mod informer;
 pub mod oidc;
@@ -16,6 +17,10 @@ mod registry;
 pub use client::KubeClient;
 pub use config::{AuthSource, ClusterConfig, ClusterName};
 pub use error::KubeError;
+pub use exec::{
+    tokio_command_runner, ExecCredential, ExecCredentialCache, ExecCredentialStatus,
+    ExecPluginConfig, Runner,
+};
 pub use health::{HealthConfig, HealthMonitor, HealthState};
 pub use informer::{Informer, InformerConfig, InformerEvent};
 pub use oidc::{OidcConfig, OidcToken, OidcTokenCache, Refresher};
