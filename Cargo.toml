@@ -9,6 +9,7 @@ members = [
     "crates/synchrotron-cli",
     "crates/synchrotron-plugins",
     "crates/synchrotron-helm-plugin",
+    "crates/synchrotron-kustomize-plugin",
 ]
 
 [workspace.package]
