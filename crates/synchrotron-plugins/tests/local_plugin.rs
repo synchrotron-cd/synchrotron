@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use synchrotron_plugins::local::{Plugin, PluginError, PluginSpec, RenderRequest};
+use synchrotron_plugins::Registry;
 
 fn stub_path() -> PathBuf {
     env!("CARGO_BIN_EXE_synchrotron-stub-plugin").into()
@@ -83,6 +84,22 @@ async fn plugin_side_error_is_surfaced() {
         }
         other => panic!("expected PluginSide, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn registry_dispatches_local_plugin_end_to_end() {
+    let stub = stub_path();
+    let yaml = format!(
+        "plugins:\n  - name: stub\n    kind: local\n    command: {}\n    env:\n      STUB_MODE: ok\n    timeout_secs: 5\n",
+        stub.display()
+    );
+    let reg = Registry::from_yaml(&yaml).unwrap();
+    let out = reg
+        .render("stub", &PathBuf::from("/tmp"), serde_json::json!({}))
+        .await
+        .unwrap();
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].name, "stub");
 }
 
 #[tokio::test]

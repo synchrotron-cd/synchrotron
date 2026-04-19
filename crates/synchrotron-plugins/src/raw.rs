@@ -12,13 +12,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
-use serde_yaml_ng::Value;
 use thiserror::Error;
 use tracing::debug;
 use walkdir::WalkDir;
 
-use crate::manifest::{Gvk, Manifest};
+use crate::manifest::{parse_stream, Manifest, ManifestParseError};
 
 #[derive(Debug, Error)]
 pub enum RawLoadError {
@@ -28,27 +26,16 @@ pub enum RawLoadError {
         #[source]
         source: std::io::Error,
     },
-    #[error("yaml parse error in {path} (document #{doc_index}): {source}")]
-    Parse {
-        path: PathBuf,
-        doc_index: usize,
-        #[source]
-        source: serde_yaml_ng::Error,
-    },
-    #[error("{path} (document #{doc_index}): missing required field `{field}`")]
-    MissingField {
-        path: PathBuf,
-        doc_index: usize,
-        field: &'static str,
-    },
+    #[error(transparent)]
+    Parse(#[from] ManifestParseError),
 }
 
 /// Load all manifests from a directory tree.
 ///
 /// Non-YAML files are skipped silently. Empty/null YAML documents are
-/// skipped (a common consequence of trailing `---`). A document that
-/// parses but lacks `apiVersion`, `kind`, or `metadata.name` is an
-/// error — silently dropping half-formed manifests would hide bugs.
+/// skipped. A document that parses but lacks `apiVersion`, `kind`,
+/// or `metadata.name` is an error — silently dropping half-formed
+/// manifests would hide bugs.
 pub fn load_dir(root: &Path) -> Result<Vec<Manifest>, RawLoadError> {
     let mut files: Vec<PathBuf> = WalkDir::new(root)
         .follow_links(false)
@@ -62,7 +49,12 @@ pub fn load_dir(root: &Path) -> Result<Vec<Manifest>, RawLoadError> {
 
     let mut out = Vec::new();
     for path in files {
-        load_file(&path, &mut out)?;
+        let text = fs::read_to_string(&path).map_err(|source| RawLoadError::Io {
+            path: path.clone(),
+            source,
+        })?;
+        let label = path.display().to_string();
+        out.extend(parse_stream(&label, &text)?);
     }
     debug!(root = %root.display(), count = out.len(), "raw yaml source loaded");
     Ok(out)
@@ -75,73 +67,10 @@ fn is_yaml(p: &Path) -> bool {
     )
 }
 
-fn load_file(path: &Path, out: &mut Vec<Manifest>) -> Result<(), RawLoadError> {
-    let text = fs::read_to_string(path).map_err(|e| RawLoadError::Io {
-        path: path.to_path_buf(),
-        source: e,
-    })?;
-
-    for (doc_index, doc) in serde_yaml_ng::Deserializer::from_str(&text).enumerate() {
-        let value = Value::deserialize(doc).map_err(|source| RawLoadError::Parse {
-            path: path.to_path_buf(),
-            doc_index,
-            source,
-        })?;
-        if value.is_null() {
-            continue;
-        }
-        out.push(to_manifest(path, doc_index, value)?);
-    }
-    Ok(())
-}
-
-fn to_manifest(path: &Path, doc_index: usize, value: Value) -> Result<Manifest, RawLoadError> {
-    let api_version = required_str(&value, "apiVersion", path, doc_index)?;
-    let kind = required_str(&value, "kind", path, doc_index)?;
-    let name = value
-        .get("metadata")
-        .and_then(|m| m.get("name"))
-        .and_then(Value::as_str)
-        .ok_or(RawLoadError::MissingField {
-            path: path.to_path_buf(),
-            doc_index,
-            field: "metadata.name",
-        })?
-        .to_string();
-    let namespace = value
-        .get("metadata")
-        .and_then(|m| m.get("namespace"))
-        .and_then(Value::as_str)
-        .map(|s| s.to_string());
-
-    Ok(Manifest {
-        gvk: Gvk::parse(&api_version, &kind),
-        name,
-        namespace,
-        body: value,
-    })
-}
-
-fn required_str(
-    value: &Value,
-    field: &'static str,
-    path: &Path,
-    doc_index: usize,
-) -> Result<String, RawLoadError> {
-    value
-        .get(field)
-        .and_then(Value::as_str)
-        .map(|s| s.to_string())
-        .ok_or(RawLoadError::MissingField {
-            path: path.to_path_buf(),
-            doc_index,
-            field,
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::manifest::Gvk;
     use std::io::Write;
     use tempfile::TempDir;
 
@@ -222,13 +151,15 @@ mod tests {
     }
 
     #[test]
-    fn invalid_yaml_is_parse_error_with_path() {
+    fn invalid_yaml_is_parse_error() {
         let dir = TempDir::new().unwrap();
         let path = write_file(dir.path(), "bad.yaml", "apiVersion: v1\nkind: : :\n");
         let err = load_dir(dir.path()).unwrap_err();
         match err {
-            RawLoadError::Parse { path: p, .. } => assert_eq!(p, path),
-            other => panic!("expected Parse, got {other:?}"),
+            RawLoadError::Parse(ManifestParseError::Yaml { source_label, .. }) => {
+                assert_eq!(source_label, path.display().to_string());
+            }
+            other => panic!("expected Parse(Yaml), got {other:?}"),
         }
     }
 
@@ -242,7 +173,9 @@ mod tests {
         );
         let err = load_dir(dir.path()).unwrap_err();
         match err {
-            RawLoadError::MissingField { field, .. } => assert_eq!(field, "metadata.name"),
+            RawLoadError::Parse(ManifestParseError::MissingField { field, .. }) => {
+                assert_eq!(field, "metadata.name");
+            }
             other => panic!("expected MissingField, got {other:?}"),
         }
     }

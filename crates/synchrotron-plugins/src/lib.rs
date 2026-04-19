@@ -12,5 +12,7 @@
 pub mod local;
 pub mod manifest;
 pub mod raw;
+pub mod registry;
 
 pub use manifest::{Gvk, Manifest};
+pub use registry::{DispatchError, PluginConfig, PluginKind, Registry};
