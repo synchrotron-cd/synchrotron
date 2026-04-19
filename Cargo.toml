@@ -8,6 +8,7 @@ members = [
     "crates/synchrotron-server",
     "crates/synchrotron-cli",
     "crates/synchrotron-plugins",
+    "crates/synchrotron-helm-plugin",
 ]
 
 [workspace.package]

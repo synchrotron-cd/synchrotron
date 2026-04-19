@@ -2376,6 +2376,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "synchrotron-helm-plugin"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "synchrotron-kube"
 version = "0.1.0"
 dependencies = [
