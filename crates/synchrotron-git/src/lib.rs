@@ -16,6 +16,7 @@ mod orchestrator;
 pub mod poller;
 mod repo;
 mod triggers;
+pub mod webhooks;
 mod workspace;
 
 pub use client::{FetchResult, GitClient, Sha};

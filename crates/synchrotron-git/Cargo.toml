@@ -10,7 +10,11 @@ thiserror.workspace = true
 tracing.workspace = true
 git2 = { version = "0.20", default-features = false, features = ["vendored-libgit2", "https"] }
 sha2 = "0.10"
+sha1 = "0.10"
+hmac = "0.12"
+subtle = "2"
 hex = "0.4"
+serde_json.workspace = true
 jsonwebtoken = "9"
 tokio = { workspace = true, features = ["sync", "rt", "time", "macros"] }
 rand = "0.8"
