@@ -2386,9 +2386,11 @@ name = "synchrotron-plugins"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "serde_yaml_ng",
  "tempfile",
  "thiserror 2.0.18",
+ "tokio",
  "tracing",
  "walkdir",
 ]

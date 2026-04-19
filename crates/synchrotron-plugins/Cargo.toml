@@ -6,10 +6,17 @@ license.workspace = true
 
 [dependencies]
 serde = { workspace = true }
+serde_json = { workspace = true }
 serde_yaml_ng = "0.10"
 thiserror = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
 walkdir = "2"
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { workspace = true }
+
+[[bin]]
+name = "synchrotron-stub-plugin"
+path = "src/bin/stub_plugin.rs"

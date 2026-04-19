@@ -9,6 +9,7 @@
 //! All three produce the same [`Manifest`] stream; downstream code
 //! (cache, reconciler) is agnostic to which runtime produced it.
 
+pub mod local;
 pub mod manifest;
 pub mod raw;
 
