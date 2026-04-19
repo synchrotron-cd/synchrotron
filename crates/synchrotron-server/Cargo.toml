@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 synchrotron-types.workspace = true
 synchrotron-core.workspace = true
+synchrotron-git = { path = "../synchrotron-git" }
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
@@ -18,3 +19,11 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 axum = "0.8"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
+bytes = "1"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"

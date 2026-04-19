@@ -1,10 +1,8 @@
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-mod api;
-mod config;
-
-use config::ServerConfig;
+use synchrotron_server::api;
+use synchrotron_server::config::ServerConfig;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
