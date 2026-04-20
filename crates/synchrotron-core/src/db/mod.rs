@@ -1,3 +1,4 @@
+pub mod app_cache_repo;
 pub mod app_repo;
 pub mod migrations;
 pub mod sync_history_repo;
@@ -58,7 +59,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 1);
+        assert_eq!(version, 2);
     }
 
     #[test]

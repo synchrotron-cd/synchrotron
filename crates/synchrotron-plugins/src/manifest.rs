@@ -1,6 +1,6 @@
 //! The common manifest type produced by every plugin runtime.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_yaml_ng::Value;
 use thiserror::Error;
 
@@ -10,7 +10,7 @@ use thiserror::Error;
 /// resources and bare `{version}` (e.g. `v1`) for the core group.
 /// We normalize the core group to the empty string so equality
 /// comparisons and cache keys are unambiguous.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Gvk {
     pub group: String,
     pub version: String,
@@ -33,7 +33,7 @@ impl Gvk {
 
 /// A single Kubernetes manifest, carrying the full parsed body plus
 /// the identifying fields extracted from it for fast indexing.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
     pub gvk: Gvk,
     pub name: String,

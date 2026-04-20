@@ -203,6 +203,23 @@ impl AppCache {
         }
     }
 
+    /// Populate the cache with pre-existing entries, typically loaded
+    /// from persistent storage at startup. Honors the byte cap — if
+    /// the warm-up set is larger than `max_bytes`, the oldest items
+    /// in the supplied list are evicted first. Does not touch
+    /// hit/miss counters; warm-up isn't a user-driven lookup.
+    ///
+    /// The input order is treated as least-recently-used first, so
+    /// pass entries sorted by most-recent activity last.
+    pub fn warm<I>(&self, entries: I)
+    where
+        I: IntoIterator<Item = (AppCacheKey, Vec<Manifest>)>,
+    {
+        for (key, manifests) in entries {
+            self.put(key, manifests);
+        }
+    }
+
     pub fn clear(&self) {
         let mut guard = self.inner.lock().expect("app cache mutex poisoned");
         guard.lru.clear();
@@ -381,6 +398,24 @@ mod tests {
         let c = AppCache::with_defaults();
         assert_eq!(c.max_entries(), DEFAULT_MAX_ENTRIES);
         assert_eq!(c.max_bytes(), DEFAULT_MAX_BYTES);
+    }
+
+    #[test]
+    fn warm_populates_cache_without_touching_hit_counters() {
+        let c = AppCache::new(10, 1 << 20);
+        c.warm([
+            (key("a", "c1", 1), vec![manifest("a1")]),
+            (key("b", "c1", 1), vec![manifest("b1")]),
+        ]);
+        assert!(c.get(&key("a", "c1", 1)).is_some());
+        assert!(c.get(&key("b", "c1", 1)).is_some());
+        let s = c.stats();
+        assert_eq!(s.entries, 2);
+        // Warm-up itself shouldn't count as hits — the two gets above
+        // account for all the hits. Misses stay at 0 since we only
+        // got keys we had warmed.
+        assert_eq!(s.hits, 2);
+        assert_eq!(s.misses, 0);
     }
 
     #[test]

@@ -23,6 +23,7 @@ synchrotron-types = { path = "crates/synchrotron-types" }
 synchrotron-core = { path = "crates/synchrotron-core" }
 synchrotron-git = { path = "crates/synchrotron-git" }
 synchrotron-kube = { path = "crates/synchrotron-kube" }
+synchrotron-plugins = { path = "crates/synchrotron-plugins" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
