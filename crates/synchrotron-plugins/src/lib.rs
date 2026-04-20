@@ -14,7 +14,9 @@ pub mod local;
 pub mod manifest;
 pub mod raw;
 pub mod registry;
+pub mod sidecar;
 
 pub use cache::{Cache, CacheKey, CacheStats};
 pub use manifest::{Gvk, Manifest};
 pub use registry::{DispatchError, PluginConfig, PluginKind, Registry};
+pub use sidecar::{RetryConfig, Sidecar, SidecarError};

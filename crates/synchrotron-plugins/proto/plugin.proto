@@ -1,0 +1,50 @@
+// Sidecar plugin protocol. Implementations live in separate
+// container images; Synchrotron speaks to them over this gRPC
+// service. Every RPC is designed to be idempotent — the host may
+// retry after a connection drop.
+
+syntax = "proto3";
+
+package synchrotron.plugin.v1;
+
+service Plugin {
+  // Reports the plugin's semantic version and the protocol version
+  // it understands. Called once after connect; mismatches fail the
+  // registration.
+  rpc Version(VersionRequest) returns (VersionResponse);
+
+  // Readiness probe. Sidecars that need warm-up (chart pull,
+  // template cache) can return ready=false with a message while
+  // still accepting the connection.
+  rpc Healthcheck(HealthcheckRequest) returns (HealthcheckResponse);
+
+  // Render an application's manifests. `params_json` is an
+  // opaque-to-the-protocol blob that each plugin parses with its
+  // own schema — keeps the wire format stable as plugins evolve.
+  rpc Render(RenderRequest) returns (RenderResponse);
+}
+
+message VersionRequest {
+  uint32 protocol_version = 1;
+}
+
+message VersionResponse {
+  string plugin_version = 1;
+  uint32 protocol_version = 2;
+}
+
+message HealthcheckRequest {}
+
+message HealthcheckResponse {
+  bool ready = 1;
+  string message = 2;
+}
+
+message RenderRequest {
+  string source_path = 1;
+  string params_json = 2;
+}
+
+message RenderResponse {
+  repeated string manifests = 1;
+}

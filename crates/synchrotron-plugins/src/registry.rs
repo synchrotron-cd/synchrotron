@@ -50,6 +50,7 @@ use tracing::info;
 use crate::local::{Plugin, PluginError, PluginSpec, RenderRequest};
 use crate::manifest::{parse_stream, Manifest, ManifestParseError};
 use crate::raw;
+use crate::sidecar::{RetryConfig, Sidecar, SidecarError};
 
 /// Default per-request timeout for local plugins when the config
 /// omits `timeout_secs`. Generous enough for Helm's slowest charts
@@ -67,8 +68,7 @@ pub enum PluginKind {
         env: Vec<(String, String)>,
         timeout: Duration,
     },
-    /// Sidecar container reached over gRPC. Runtime is h48.3.3;
-    /// dispatch currently returns [`DispatchError::Unimplemented`].
+    /// Sidecar container reached over gRPC. See [`crate::sidecar`].
     Sidecar { endpoint: String },
 }
 
@@ -98,12 +98,12 @@ pub enum ConfigError {
 pub enum DispatchError {
     #[error("unknown plugin `{name}`")]
     Unknown { name: String },
-    #[error("plugin `{name}`: sidecar runtime is not yet implemented")]
-    Unimplemented { name: String },
     #[error("raw source: {0}")]
     Raw(#[from] raw::RawLoadError),
     #[error("local plugin: {0}")]
     Local(#[from] PluginError),
+    #[error("sidecar plugin: {0}")]
+    Sidecar(#[from] SidecarError),
     #[error(transparent)]
     Parse(#[from] ManifestParseError),
 }
@@ -208,9 +208,18 @@ impl Registry {
                 }
                 Ok(out)
             }
-            PluginKind::Sidecar { .. } => Err(DispatchError::Unimplemented {
-                name: config.name.clone(),
-            }),
+            PluginKind::Sidecar { endpoint } => {
+                let mut sidecar =
+                    Sidecar::connect(config.name.clone(), endpoint, &RetryConfig::default())
+                        .await?;
+                let docs = sidecar.render(source_path, &params).await?;
+                let mut out = Vec::new();
+                for (idx, doc) in docs.iter().enumerate() {
+                    let label = format!("{}#{idx}", config.name);
+                    out.extend(parse_stream(&label, doc)?);
+                }
+                Ok(out)
+            }
         }
     }
 }
@@ -438,16 +447,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dispatch_sidecar_is_unimplemented() {
+    async fn dispatch_sidecar_unreachable_endpoint_errors() {
+        // 127.0.0.1:1 is reliably connection-refused on Linux —
+        // exercises the connect-retry exhaustion path without
+        // needing an actual server.
         let reg = Registry::from_yaml(
-            "plugins:\n  - name: s\n    kind: sidecar\n    endpoint: http://x\n",
+            "plugins:\n  - name: s\n    kind: sidecar\n    endpoint: http://127.0.0.1:1\n",
         )
         .unwrap();
         let err = reg
             .render("s", Path::new("/"), serde_json::json!({}))
             .await
             .unwrap_err();
-        assert!(matches!(err, DispatchError::Unimplemented { .. }));
+        assert!(
+            matches!(err, DispatchError::Sidecar(SidecarError::Connect { .. })),
+            "got {err:?}"
+        );
     }
 
     #[tokio::test]

@@ -6,18 +6,25 @@ license.workspace = true
 
 [dependencies]
 lru = "0.12"
+prost = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml_ng = "0.10"
 sha2 = "0.10"
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tonic = { workspace = true }
 tracing = { workspace = true }
 walkdir = "2"
+
+[build-dependencies]
+protoc-bin-vendored = { workspace = true }
+tonic-build = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
 tokio = { workspace = true }
+tokio-stream = { version = "0.1", features = ["net"] }
 
 [[bin]]
 name = "synchrotron-stub-plugin"
