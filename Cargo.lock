@@ -2665,6 +2665,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "synchrotron-reconcile"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "synchrotron-server"
 version = "0.1.0"
 dependencies = [
