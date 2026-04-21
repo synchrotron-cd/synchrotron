@@ -2668,6 +2668,10 @@ dependencies = [
 name = "synchrotron-reconcile"
 version = "0.1.0"
 dependencies = [
+ "serde_yaml_ng",
+ "synchrotron-core",
+ "synchrotron-plugins",
+ "synchrotron-types",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
