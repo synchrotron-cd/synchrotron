@@ -17,10 +17,14 @@
 
 pub mod plan;
 pub mod reconcile;
+pub mod trigger;
 pub mod worker_pool;
 
 pub use plan::{plan, Plan, PlanEntry, PlannedAction, ResourceRef};
 pub use reconcile::{
     DesiredSource, LiveSource, ReconcileError, ReconcileOutcome, Reconciler, SourceError,
 };
-pub use worker_pool::{EnqueueError, JobCtx, PoolConfig, PoolStats, Trigger, WorkerPool};
+pub use trigger::{AppResolver, EventTrigger};
+pub use worker_pool::{
+    EnqueueError, JobCtx, PoolConfig, PoolHandle, PoolStats, Trigger, WorkerPool,
+};

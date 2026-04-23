@@ -177,62 +177,38 @@ impl WorkerPool {
     /// Enqueue a reconcile for `app_id`. Returns immediately without
     /// waiting for the handler to start or finish.
     pub fn enqueue(&self, app_id: impl Into<String>, trigger: Trigger) -> Result<(), EnqueueError> {
-        let app_id = app_id.into();
-        let mut state = self.inner.state.lock().expect("worker pool mutex poisoned");
-        if state.shutdown {
-            return Err(EnqueueError::Shutdown);
-        }
-        let q = state.apps.entry(app_id.clone()).or_default();
-        if q.len() >= self.inner.config.per_app_queue_cap {
-            self.inner
-                .counters
-                .rejected_full
-                .fetch_add(1, Ordering::Relaxed);
-            return Err(EnqueueError::QueueFull {
-                app_id,
-                cap: self.inner.config.per_app_queue_cap,
-            });
-        }
-        q.push_back(JobCtx {
-            app_id: app_id.clone(),
-            trigger,
-            enqueued_at: Instant::now(),
-        });
-        state.queue_depth += 1;
-        self.inner.counters.enqueued.fetch_add(1, Ordering::Relaxed);
+        enqueue_impl(&self.inner, app_id.into(), trigger, false).map(|_| ())
+    }
 
-        // Only add to ready if the app isn't currently running or
-        // already scheduled. `ready` is small; linear scan beats
-        // maintaining a parallel set for the sizes we expect.
-        let already_ready = state.ready.iter().any(|a| a == &app_id);
-        if !state.in_flight.contains(&app_id) && !already_ready {
-            state.ready.push_back(app_id);
-        }
-
-        drop(state);
-        self.inner.notify.notify_one();
-        Ok(())
+    /// Enqueue only if no job for `app_id` is currently pending or
+    /// in-flight. Returns `Ok(true)` if accepted, `Ok(false)` if
+    /// coalesced away. Intended for event-driven triggers that fire
+    /// on every upstream change — coalescing prevents a rapid burst
+    /// from filling the per-app queue with redundant reconciles
+    /// that would all observe the same desired state anyway.
+    pub fn enqueue_coalesce(
+        &self,
+        app_id: impl Into<String>,
+        trigger: Trigger,
+    ) -> Result<bool, EnqueueError> {
+        enqueue_impl(&self.inner, app_id.into(), trigger, true)
     }
 
     pub fn stats(&self) -> PoolStats {
-        let state = self.inner.state.lock().expect("worker pool mutex poisoned");
-        PoolStats {
-            enqueued: self.inner.counters.enqueued.load(Ordering::Relaxed),
-            rejected_full: self.inner.counters.rejected_full.load(Ordering::Relaxed),
-            started: self.inner.counters.started.load(Ordering::Relaxed),
-            completed: self.inner.counters.completed.load(Ordering::Relaxed),
-            in_flight: state.in_flight.len(),
-            queue_depth: state.queue_depth,
-            total_wait_micros: self
-                .inner
-                .counters
-                .total_wait_micros
-                .load(Ordering::Relaxed),
-        }
+        stats_snapshot(&self.inner)
     }
 
     pub fn config(&self) -> &PoolConfig {
         &self.inner.config
+    }
+
+    /// Obtain a cheap, clonable producer handle. Hand these to
+    /// components (triggers, schedulers) that need to enqueue but
+    /// must not own the pool's lifecycle.
+    pub fn handle(&self) -> PoolHandle {
+        PoolHandle {
+            inner: self.inner.clone(),
+        }
     }
 
     /// Close intake and await every currently-running handler.
@@ -252,6 +228,91 @@ impl WorkerPool {
             }
         }
         debug!("worker pool shutdown complete");
+    }
+}
+
+/// Cloneable producer handle. Enqueues jobs into the pool owned
+/// by whoever still holds the [`WorkerPool`] value; shutdown
+/// semantics are the owner's responsibility.
+#[derive(Clone)]
+pub struct PoolHandle {
+    inner: Arc<Inner>,
+}
+
+impl PoolHandle {
+    pub fn enqueue(&self, app_id: impl Into<String>, trigger: Trigger) -> Result<(), EnqueueError> {
+        enqueue_impl(&self.inner, app_id.into(), trigger, false).map(|_| ())
+    }
+
+    pub fn enqueue_coalesce(
+        &self,
+        app_id: impl Into<String>,
+        trigger: Trigger,
+    ) -> Result<bool, EnqueueError> {
+        enqueue_impl(&self.inner, app_id.into(), trigger, true)
+    }
+
+    pub fn stats(&self) -> PoolStats {
+        stats_snapshot(&self.inner)
+    }
+}
+
+/// Shared implementation for `enqueue` and `enqueue_coalesce`.
+///
+/// When `coalesce` is `true` and the app already has a pending or
+/// in-flight job, returns `Ok(false)` without touching state. An
+/// app is considered "already scheduled" iff it's present in the
+/// `apps` map — on handler completion an idle app is explicitly
+/// removed, so presence in the map is the single source of truth.
+fn enqueue_impl(
+    inner: &Arc<Inner>,
+    app_id: String,
+    trigger: Trigger,
+    coalesce: bool,
+) -> Result<bool, EnqueueError> {
+    let mut state = inner.state.lock().expect("worker pool mutex poisoned");
+    if state.shutdown {
+        return Err(EnqueueError::Shutdown);
+    }
+    if coalesce && state.apps.contains_key(&app_id) {
+        return Ok(false);
+    }
+    let q = state.apps.entry(app_id.clone()).or_default();
+    if q.len() >= inner.config.per_app_queue_cap {
+        inner.counters.rejected_full.fetch_add(1, Ordering::Relaxed);
+        return Err(EnqueueError::QueueFull {
+            app_id,
+            cap: inner.config.per_app_queue_cap,
+        });
+    }
+    q.push_back(JobCtx {
+        app_id: app_id.clone(),
+        trigger,
+        enqueued_at: Instant::now(),
+    });
+    state.queue_depth += 1;
+    inner.counters.enqueued.fetch_add(1, Ordering::Relaxed);
+
+    let already_ready = state.ready.iter().any(|a| a == &app_id);
+    if !state.in_flight.contains(&app_id) && !already_ready {
+        state.ready.push_back(app_id);
+    }
+
+    drop(state);
+    inner.notify.notify_one();
+    Ok(true)
+}
+
+fn stats_snapshot(inner: &Arc<Inner>) -> PoolStats {
+    let state = inner.state.lock().expect("worker pool mutex poisoned");
+    PoolStats {
+        enqueued: inner.counters.enqueued.load(Ordering::Relaxed),
+        rejected_full: inner.counters.rejected_full.load(Ordering::Relaxed),
+        started: inner.counters.started.load(Ordering::Relaxed),
+        completed: inner.counters.completed.load(Ordering::Relaxed),
+        in_flight: state.in_flight.len(),
+        queue_depth: state.queue_depth,
+        total_wait_micros: inner.counters.total_wait_micros.load(Ordering::Relaxed),
     }
 }
 
