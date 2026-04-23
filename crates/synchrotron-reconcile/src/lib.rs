@@ -15,11 +15,13 @@
 //!   planner, and publishes a `SyncOutcome` event. The actual apply
 //!   step lands in a later slice.
 
+pub mod auto_heal;
 pub mod plan;
 pub mod reconcile;
 pub mod trigger;
 pub mod worker_pool;
 
+pub use auto_heal::{AppLister, AutoHealConfig, AutoHealScheduler, AutoHealStats};
 pub use plan::{plan, Plan, PlanEntry, PlannedAction, ResourceRef};
 pub use reconcile::{
     DesiredSource, LiveSource, ReconcileError, ReconcileOutcome, Reconciler, SourceError,
