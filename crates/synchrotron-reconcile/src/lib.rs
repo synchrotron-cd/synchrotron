@@ -16,12 +16,14 @@
 //!   step lands in a later slice.
 
 pub mod auto_heal;
+pub mod debounce;
 pub mod plan;
 pub mod reconcile;
 pub mod trigger;
 pub mod worker_pool;
 
 pub use auto_heal::{AppLister, AutoHealConfig, AutoHealScheduler, AutoHealStats};
+pub use debounce::{DebounceConfig, DebounceStats, Debouncer};
 pub use plan::{plan, Plan, PlanEntry, PlannedAction, ResourceRef};
 pub use reconcile::{
     DesiredSource, LiveSource, ReconcileError, ReconcileOutcome, Reconciler, SourceError,
