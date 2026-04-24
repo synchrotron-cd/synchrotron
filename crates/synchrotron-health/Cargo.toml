@@ -10,5 +10,8 @@ synchrotron-plugins = { workspace = true }
 synchrotron-core = { workspace = true }
 synchrotron-reconcile = { path = "../synchrotron-reconcile" }
 serde_yaml_ng = "0.10"
+serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+cel-interpreter = "0.10"
+thiserror = { workspace = true }

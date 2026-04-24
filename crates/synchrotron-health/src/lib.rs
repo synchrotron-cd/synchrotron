@@ -48,9 +48,11 @@ use synchrotron_plugins::Manifest;
 use synchrotron_types::HealthStatusCode;
 
 pub mod aggregate;
+pub mod cel;
 pub use aggregate::{
     aggregate, publish_app_health, AppHealth, AppHealthChecker, ManifestStore, ResourceHealth,
 };
+pub use cel::{CelCompileError, CelEvalError, CelOverrides, CelRule, DEFAULT_CEL_TIMEOUT};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HealthAssessment {
@@ -93,10 +95,38 @@ impl HealthAssessment {
 /// a message — not a failure, just "this crate doesn't have a rule
 /// for that." The caller layers tier 2/3 on top.
 pub fn assess(manifest: &Manifest) -> HealthAssessment {
+    assess_tier1(manifest)
+        .or_else(|| assess_by_conditions(manifest))
+        .unwrap_or_else(|| HealthAssessment::unknown("no tier-1 or tier-2 signal"))
+}
+
+/// Three-tier assessment: tier-1 built-in → tier-3 CEL override →
+/// tier-2 conditions convention → `Unknown`.
+///
+/// For kinds with a hard-coded tier-1 rule, tier-1 is authoritative
+/// (CEL cannot override the health of a Pod or Deployment — those
+/// rules are canonical and must stay predictable). CEL kicks in for
+/// kinds the built-ins don't cover, before the conditions-convention
+/// fallback.
+pub fn assess_with_overrides(manifest: &Manifest, overrides: &CelOverrides) -> HealthAssessment {
+    if let Some(a) = assess_tier1(manifest) {
+        return a;
+    }
+    if let Some(a) = overrides.assess(manifest) {
+        return a;
+    }
+    assess_by_conditions(manifest)
+        .unwrap_or_else(|| HealthAssessment::unknown("no tier-1, tier-2, or tier-3 signal"))
+}
+
+/// Tier-1 only: returns `Some` only for kinds this crate has a
+/// hard-coded rule for. `None` means "this crate has no opinion —
+/// try another tier."
+fn assess_tier1(manifest: &Manifest) -> Option<HealthAssessment> {
     let group = manifest.gvk.group.as_str();
     let kind = manifest.gvk.kind.as_str();
     let body = &manifest.body;
-    match (group, kind) {
+    Some(match (group, kind) {
         ("apps", "Deployment") => assess_deployment(body),
         ("apps", "StatefulSet") => assess_statefulset(body),
         ("apps", "DaemonSet") => assess_daemonset(body),
@@ -107,9 +137,8 @@ pub fn assess(manifest: &Manifest) -> HealthAssessment {
         ("", "PersistentVolumeClaim") => assess_pvc(body),
         ("apiextensions.k8s.io", "CustomResourceDefinition") => assess_crd(body),
         ("autoscaling", "HorizontalPodAutoscaler") => assess_hpa(body),
-        _ => assess_by_conditions(manifest)
-            .unwrap_or_else(|| HealthAssessment::unknown("no tier-1 or tier-2 signal")),
-    }
+        _ => return None,
+    })
 }
 
 /// Tier-2 health assessment by `status.conditions` convention.
@@ -770,6 +799,64 @@ mod tests {
     fn assess_by_conditions_returns_none_without_conditions() {
         let m = parse("apiVersion: example.com/v1\nkind: Foo\nmetadata:\n  name: f\nstatus: {}\n");
         assert!(assess_by_conditions(&m).is_none());
+    }
+
+    #[test]
+    fn overrides_tier1_wins_over_cel_for_known_kinds() {
+        // Even with a CEL rule registered for apps/Deployment, tier-1
+        // remains authoritative for built-in kinds.
+        let mut o = CelOverrides::new();
+        o.register("apps", "Deployment", r#""Degraded""#).unwrap();
+        let m = parse(
+            "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  generation: 1\nspec:\n  replicas: 1\nstatus:\n  observedGeneration: 1\n  replicas: 1\n  updatedReplicas: 1\n  availableReplicas: 1\n",
+        );
+        assert_eq!(
+            assess_with_overrides(&m, &o).status,
+            HealthStatusCode::Healthy
+        );
+    }
+
+    #[test]
+    fn overrides_cel_applies_when_no_tier1_match() {
+        let mut o = CelOverrides::new();
+        o.register(
+            "example.com",
+            "Widget",
+            r#"self.status.phase == "Ready" ? "Healthy" : "Progressing""#,
+        )
+        .unwrap();
+        let m = parse(
+            "apiVersion: example.com/v1\nkind: Widget\nmetadata:\n  name: w\nstatus:\n  phase: Ready\n",
+        );
+        assert_eq!(
+            assess_with_overrides(&m, &o).status,
+            HealthStatusCode::Healthy
+        );
+    }
+
+    #[test]
+    fn overrides_falls_through_to_tier2_when_cel_errors() {
+        // CEL rule returns a bogus string; tier 2 sees Ready=True.
+        let mut o = CelOverrides::new();
+        o.register("example.com", "Widget", r#""Bogus""#).unwrap();
+        let m = parse(
+            "apiVersion: example.com/v1\nkind: Widget\nmetadata:\n  name: w\nstatus:\n  conditions:\n    - type: Ready\n      status: \"True\"\n",
+        );
+        assert_eq!(
+            assess_with_overrides(&m, &o).status,
+            HealthStatusCode::Healthy
+        );
+    }
+
+    #[test]
+    fn overrides_falls_through_to_unknown_when_all_tiers_miss() {
+        let o = CelOverrides::new();
+        let m =
+            parse("apiVersion: example.com/v1\nkind: Widget\nmetadata:\n  name: w\nstatus: {}\n");
+        assert_eq!(
+            assess_with_overrides(&m, &o).status,
+            HealthStatusCode::Unknown
+        );
     }
 
     #[test]
