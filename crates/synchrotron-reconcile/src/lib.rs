@@ -20,6 +20,7 @@ pub mod debounce;
 pub mod plan;
 pub mod reconcile;
 pub mod trigger;
+pub mod wave;
 pub mod worker_pool;
 
 pub use auto_heal::{AppLister, AutoHealConfig, AutoHealScheduler, AutoHealStats};
@@ -29,6 +30,11 @@ pub use reconcile::{
     DesiredSource, LiveSource, ReconcileError, ReconcileOutcome, Reconciler, SourceError,
 };
 pub use trigger::{AppResolver, EventTrigger};
+pub use wave::{
+    execute_waves, group_into_waves, wave_of, Applier, ApplyError, HealthChecker, WaveExecConfig,
+    WaveExecError, WaveExecReport, WaveGroup, WavePlan, ARGOCD_WAVE_ANNOTATION, DEFAULT_WAVE,
+    SYNCHROTRON_WAVE_ANNOTATION,
+};
 pub use worker_pool::{
     EnqueueError, JobCtx, PoolConfig, PoolHandle, PoolStats, Trigger, WorkerPool,
 };
