@@ -2604,6 +2604,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "synchrotron-health"
+version = "0.1.0"
+dependencies = [
+ "serde_yaml_ng",
+ "synchrotron-plugins",
+ "synchrotron-types",
+]
+
+[[package]]
 name = "synchrotron-helm-plugin"
 version = "0.1.0"
 dependencies = [

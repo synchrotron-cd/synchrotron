@@ -1,0 +1,10 @@
+[package]
+name = "synchrotron-health"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+synchrotron-types = { workspace = true }
+synchrotron-plugins = { workspace = true }
+serde_yaml_ng = "0.10"

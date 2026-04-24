@@ -11,6 +11,7 @@ members = [
     "crates/synchrotron-helm-plugin",
     "crates/synchrotron-kustomize-plugin",
     "crates/synchrotron-reconcile",
+    "crates/synchrotron-health",
 ]
 
 [workspace.package]
