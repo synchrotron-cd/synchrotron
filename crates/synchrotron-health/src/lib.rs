@@ -16,10 +16,22 @@
 //! # Entry point
 //!
 //! [`assess`] takes a [`Manifest`] and returns a [`HealthAssessment`].
-//! If the kind isn't in the tier-1 set, the result is
-//! [`HealthStatusCode::Unknown`] with a short explanatory message —
-//! callers can route those to tier 2 or fall back to "treat as
-//! progressing."
+//! Dispatch order:
+//!
+//! 1. **Tier 1** — a hard-coded rule for the kind (see the `match`
+//!    in [`assess`]). This is the authoritative path for the kinds
+//!    we ship rules for.
+//! 2. **Tier 2** — [`assess_by_conditions`]: for kinds without a
+//!    tier-1 rule, fall back to the conventional `status.conditions`
+//!    pattern. Looks for `type: Ready` first, then `type: Available`,
+//!    and maps `True/False/Unknown` to
+//!    `Healthy/Degraded/Progressing`. This covers most operators and
+//!    CRDs with zero per-resource config.
+//! 3. **Tier 3** (future) — user-authored CEL overrides for anything
+//!    Tiers 1 and 2 don't cover.
+//!
+//! If none of the tiers produces an answer, the result is
+//! [`HealthStatusCode::Unknown`] with a short explanatory message.
 //!
 //! # Conventions
 //!
@@ -90,7 +102,57 @@ pub fn assess(manifest: &Manifest) -> HealthAssessment {
         ("", "PersistentVolumeClaim") => assess_pvc(body),
         ("apiextensions.k8s.io", "CustomResourceDefinition") => assess_crd(body),
         ("autoscaling", "HorizontalPodAutoscaler") => assess_hpa(body),
-        _ => HealthAssessment::unknown("no tier-1 rule for this kind"),
+        _ => assess_by_conditions(manifest)
+            .unwrap_or_else(|| HealthAssessment::unknown("no tier-1 or tier-2 signal")),
+    }
+}
+
+/// Tier-2 health assessment by `status.conditions` convention.
+///
+/// Scans the manifest's `status.conditions` list for one of the
+/// community-standard readiness conditions — `Ready` preferred,
+/// `Available` as a fallback — and maps its status to a
+/// [`HealthAssessment`]:
+///
+/// - `status: "True"` → [`HealthStatusCode::Healthy`]
+/// - `status: "False"` → [`HealthStatusCode::Degraded`] (reason or
+///   message copied through when present)
+/// - `status: "Unknown"` or any other value → [`HealthStatusCode::Progressing`]
+///
+/// Returns `None` when neither condition exists. That's an
+/// intentional "no signal" — callers can decide whether to surface
+/// it as `Unknown` or defer to a tier-3 override.
+///
+/// `Ready` is chosen over `Available` because `Ready` is the
+/// broader convention (Pod, Node, most controller-runtime CRDs),
+/// while `Available` is narrower (Deployment uses it, but we have a
+/// tier-1 rule for Deployment already). Picking the more general
+/// one first handles more kinds correctly.
+pub fn assess_by_conditions(manifest: &Manifest) -> Option<HealthAssessment> {
+    let status = manifest.body.get("status")?;
+    let cond = find_condition(status, "Ready").or_else(|| find_condition(status, "Available"))?;
+    Some(health_from_condition(cond))
+}
+
+fn health_from_condition(cond: &Value) -> HealthAssessment {
+    let status = condition_status(cond).unwrap_or("");
+    let detail = condition_reason(cond)
+        .or_else(|| cond.get("message").and_then(Value::as_str))
+        .unwrap_or("");
+    match status {
+        "True" => HealthAssessment::healthy(),
+        "False" => HealthAssessment::degraded(if detail.is_empty() {
+            "condition reports false"
+        } else {
+            detail
+        }),
+        // "Unknown" or anything else: the controller hasn't
+        // committed to a verdict yet.
+        _ => HealthAssessment::progressing(if detail.is_empty() {
+            "condition status unknown"
+        } else {
+            detail
+        }),
     }
 }
 
@@ -625,10 +687,84 @@ mod tests {
     }
 
     #[test]
-    fn unknown_kind_returns_unknown() {
+    fn unknown_kind_with_no_conditions_returns_unknown() {
         let m =
             parse("apiVersion: example.com/v1\nkind: Widget\nmetadata:\n  name: w\nstatus: {}\n");
         assert_eq!(assess(&m).status, HealthStatusCode::Unknown);
+    }
+
+    #[test]
+    fn tier2_unknown_kind_with_ready_true_is_healthy() {
+        let m = parse(
+            "apiVersion: example.com/v1\nkind: Foo\nmetadata:\n  name: f\nstatus:\n  conditions:\n    - type: Ready\n      status: \"True\"\n",
+        );
+        assert_eq!(assess(&m).status, HealthStatusCode::Healthy);
+    }
+
+    #[test]
+    fn tier2_unknown_kind_with_ready_false_is_degraded() {
+        let m = parse(
+            "apiVersion: example.com/v1\nkind: Foo\nmetadata:\n  name: f\nstatus:\n  conditions:\n    - type: Ready\n      status: \"False\"\n      reason: BackendDown\n      message: upstream unreachable\n",
+        );
+        let r = assess(&m);
+        assert_eq!(r.status, HealthStatusCode::Degraded);
+        assert_eq!(r.message.as_deref(), Some("BackendDown"));
+    }
+
+    #[test]
+    fn tier2_ready_unknown_status_is_progressing() {
+        let m = parse(
+            "apiVersion: example.com/v1\nkind: Foo\nmetadata:\n  name: f\nstatus:\n  conditions:\n    - type: Ready\n      status: Unknown\n      reason: Initializing\n",
+        );
+        let r = assess(&m);
+        assert_eq!(r.status, HealthStatusCode::Progressing);
+        assert_eq!(r.message.as_deref(), Some("Initializing"));
+    }
+
+    #[test]
+    fn tier2_falls_back_to_available_when_no_ready() {
+        let m = parse(
+            "apiVersion: example.com/v1\nkind: Bar\nmetadata:\n  name: b\nstatus:\n  conditions:\n    - type: Available\n      status: \"True\"\n",
+        );
+        assert_eq!(assess(&m).status, HealthStatusCode::Healthy);
+    }
+
+    #[test]
+    fn tier2_prefers_ready_over_available() {
+        // Ready=False should win even though Available=True is also
+        // present. Ready is the stronger signal on kinds that expose
+        // both.
+        let m = parse(
+            "apiVersion: example.com/v1\nkind: Bar\nmetadata:\n  name: b\nstatus:\n  conditions:\n    - type: Available\n      status: \"True\"\n    - type: Ready\n      status: \"False\"\n      reason: Stalled\n",
+        );
+        let r = assess(&m);
+        assert_eq!(r.status, HealthStatusCode::Degraded);
+        assert_eq!(r.message.as_deref(), Some("Stalled"));
+    }
+
+    #[test]
+    fn tier2_ignores_unrelated_condition_types() {
+        let m = parse(
+            "apiVersion: example.com/v1\nkind: Foo\nmetadata:\n  name: f\nstatus:\n  conditions:\n    - type: Reconciling\n      status: \"True\"\n",
+        );
+        assert_eq!(assess(&m).status, HealthStatusCode::Unknown);
+    }
+
+    #[test]
+    fn tier1_wins_over_tier2_for_known_kinds() {
+        // A Deployment whose real status says "not rolled out" must
+        // follow tier-1 (Progressing), not get shortcut to Healthy
+        // because some condition list happens to include Ready=True.
+        let m = parse(
+            "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  generation: 1\nspec:\n  replicas: 3\nstatus:\n  observedGeneration: 1\n  replicas: 1\n  updatedReplicas: 1\n  availableReplicas: 1\n  conditions:\n    - type: Ready\n      status: \"True\"\n",
+        );
+        assert_eq!(assess(&m).status, HealthStatusCode::Progressing);
+    }
+
+    #[test]
+    fn assess_by_conditions_returns_none_without_conditions() {
+        let m = parse("apiVersion: example.com/v1\nkind: Foo\nmetadata:\n  name: f\nstatus: {}\n");
+        assert!(assess_by_conditions(&m).is_none());
     }
 
     #[test]
