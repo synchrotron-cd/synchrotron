@@ -7,4 +7,8 @@ license.workspace = true
 [dependencies]
 synchrotron-types = { workspace = true }
 synchrotron-plugins = { workspace = true }
+synchrotron-core = { workspace = true }
+synchrotron-reconcile = { path = "../synchrotron-reconcile" }
 serde_yaml_ng = "0.10"
+tokio = { workspace = true }
+tracing = { workspace = true }

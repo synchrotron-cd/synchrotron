@@ -2608,8 +2608,12 @@ name = "synchrotron-health"
 version = "0.1.0"
 dependencies = [
  "serde_yaml_ng",
+ "synchrotron-core",
  "synchrotron-plugins",
+ "synchrotron-reconcile",
  "synchrotron-types",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -16,7 +16,7 @@ use std::time::SystemTime;
 use tokio::sync::broadcast;
 use tracing::warn;
 
-use synchrotron_types::{AppName, ClusterName};
+use synchrotron_types::{AppName, ClusterName, HealthStatusCode};
 
 /// A `RepoId` here is the string form of `synchrotron_git::RepoId`.
 /// We avoid a direct dep on synchrotron-git to keep the event bus
@@ -43,6 +43,18 @@ pub enum SystemEvent {
         app: AppName,
         cluster: ClusterName,
         success: bool,
+        message: Option<String>,
+    },
+    /// An aggregate health re-assessment completed for an app. The
+    /// `status` is the worst-of across all owned resources;
+    /// `message` surfaces the reason from whichever resource drove
+    /// the aggregate. Published by the health engine on each
+    /// assessment; consumers include status APIs and anything that
+    /// needs to react to app-level health transitions.
+    AppHealthAssessed {
+        app: AppName,
+        cluster: ClusterName,
+        status: HealthStatusCode,
         message: Option<String>,
     },
 }

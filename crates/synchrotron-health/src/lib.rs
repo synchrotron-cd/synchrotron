@@ -47,6 +47,11 @@ use serde_yaml_ng::Value;
 use synchrotron_plugins::Manifest;
 use synchrotron_types::HealthStatusCode;
 
+pub mod aggregate;
+pub use aggregate::{
+    aggregate, publish_app_health, AppHealth, AppHealthChecker, ManifestStore, ResourceHealth,
+};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HealthAssessment {
     pub status: HealthStatusCode,

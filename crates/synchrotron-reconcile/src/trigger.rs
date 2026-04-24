@@ -92,7 +92,8 @@ fn dispatch(event: &SystemEvent, pool: &PoolHandle, resolver: &dyn AppResolver) 
         // would be noisy; these are silently ignored.
         SystemEvent::RepoUnchanged { .. }
         | SystemEvent::RepoFetchFailed { .. }
-        | SystemEvent::SyncOutcome { .. } => return,
+        | SystemEvent::SyncOutcome { .. }
+        | SystemEvent::AppHealthAssessed { .. } => return,
     };
 
     for app in apps {
