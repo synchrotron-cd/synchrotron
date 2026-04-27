@@ -12,6 +12,7 @@ members = [
     "crates/synchrotron-kustomize-plugin",
     "crates/synchrotron-reconcile",
     "crates/synchrotron-health",
+    "crates/synchrotron-diff",
 ]
 
 [workspace.package]

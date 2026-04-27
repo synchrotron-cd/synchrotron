@@ -2683,6 +2683,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "synchrotron-diff"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "serde_yaml_ng",
+ "synchrotron-plugins",
+ "synchrotron-types",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "synchrotron-git"
 version = "0.1.0"
 dependencies = [

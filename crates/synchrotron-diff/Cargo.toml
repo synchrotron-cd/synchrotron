@@ -1,0 +1,16 @@
+[package]
+name = "synchrotron-diff"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+synchrotron-plugins = { workspace = true }
+synchrotron-types = { workspace = true }
+serde_yaml_ng = "0.10"
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
