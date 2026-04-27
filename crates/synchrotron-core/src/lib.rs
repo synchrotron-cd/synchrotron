@@ -1,6 +1,7 @@
 pub mod coalesce;
 pub mod db;
 pub mod events;
+pub mod metrics;
 pub mod telemetry;
 
 pub use coalesce::Coalescer;

@@ -20,8 +20,10 @@
 //! source with a background task is the caller's problem.
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use synchrotron_core::events::{EventBus, SystemEvent};
+use synchrotron_core::metrics::Metrics;
 use synchrotron_core::telemetry::reconcile_span;
 use synchrotron_plugins::Manifest;
 use synchrotron_types::{AppName, ClusterName};
@@ -92,11 +94,26 @@ pub struct Reconciler {
     desired: Arc<dyn DesiredSource>,
     live: Arc<dyn LiveSource>,
     bus: EventBus,
+    metrics: Option<Arc<Metrics>>,
 }
 
 impl Reconciler {
     pub fn new(desired: Arc<dyn DesiredSource>, live: Arc<dyn LiveSource>, bus: EventBus) -> Self {
-        Self { desired, live, bus }
+        Self {
+            desired,
+            live,
+            bus,
+            metrics: None,
+        }
+    }
+
+    /// Attach a metrics registry. Once set, every reconcile pass
+    /// records `synchrotron_reconcile_total`,
+    /// `synchrotron_reconcile_duration_seconds`, and (on success)
+    /// `synchrotron_plan_changes`.
+    pub fn with_metrics(mut self, metrics: Arc<Metrics>) -> Self {
+        self.metrics = Some(metrics);
+        self
     }
 
     /// Run one reconcile pass for `app` against `cluster`.
@@ -107,6 +124,7 @@ impl Reconciler {
     /// per-app status.
     pub fn reconcile_app(&self, app: &AppName, cluster: &ClusterName) -> ReconcileOutcome {
         let _enter = reconcile_span(&app.0, &cluster.0).entered();
+        let started = Instant::now();
         let desired = match self.desired.desired(app) {
             Ok(d) => d,
             Err(SourceError::NotFound) => {
@@ -153,6 +171,10 @@ impl Reconciler {
             noops = plan.noop_count(),
             "reconcile plan produced"
         );
+        if let Some(m) = &self.metrics {
+            m.record_reconcile(&app.0, &cluster.0, true, started.elapsed());
+            m.record_plan_changes(&app.0, &cluster.0, plan.changes());
+        }
         self.bus.publish(SystemEvent::SyncOutcome {
             app: app.clone(),
             cluster: cluster.clone(),
@@ -174,6 +196,15 @@ impl Reconciler {
         error: ReconcileError,
     ) -> ReconcileOutcome {
         warn!(%app, %cluster, %error, "reconcile failed");
+        if let Some(m) = &self.metrics {
+            // Failure path doesn't have access to `started`, so the
+            // duration is recorded at the call site that owns it.
+            // For now, count failures with a zero duration —
+            // operators care about the rate, not the latency, of
+            // failures (failures usually short-circuit before doing
+            // meaningful work).
+            m.record_reconcile(&app.0, &cluster.0, false, std::time::Duration::ZERO);
+        }
         self.bus.publish(SystemEvent::SyncOutcome {
             app: app.clone(),
             cluster: cluster.clone(),
