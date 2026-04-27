@@ -1,16 +1,12 @@
 use tracing::info;
-use tracing_subscriber::EnvFilter;
 
+use synchrotron_core::telemetry::{init as telemetry_init, TelemetryConfig};
 use synchrotron_server::api;
 use synchrotron_server::config::ServerConfig;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
+    telemetry_init(TelemetryConfig::default())?;
 
     let config = ServerConfig::default();
 

@@ -22,6 +22,7 @@
 use std::sync::Arc;
 
 use synchrotron_core::events::{EventBus, SystemEvent};
+use synchrotron_core::telemetry::reconcile_span;
 use synchrotron_plugins::Manifest;
 use synchrotron_types::{AppName, ClusterName};
 use thiserror::Error;
@@ -105,6 +106,7 @@ impl Reconciler {
     /// caller can decide whether to retry, back off, or update
     /// per-app status.
     pub fn reconcile_app(&self, app: &AppName, cluster: &ClusterName) -> ReconcileOutcome {
+        let _enter = reconcile_span(&app.0, &cluster.0).entered();
         let desired = match self.desired.desired(app) {
             Ok(d) => d,
             Err(SourceError::NotFound) => {
