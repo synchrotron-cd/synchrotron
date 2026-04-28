@@ -32,10 +32,12 @@
 
 pub mod applier;
 pub mod compare;
+pub mod ignore;
 pub mod listmap;
 pub mod path;
 
 pub use applier::{DryRunApplier, DryRunError};
 pub use compare::{diff, manifests_equivalent, Change, Diff};
+pub use ignore::{path_to_json_pointer, IgnoreRule, IgnoreRules};
 pub use listmap::{ListMapKeys, ListMapKind};
 pub use path::{PathSegment, ValuePath};
