@@ -26,10 +26,10 @@
 //! "only show drift on fields synchrotron-cd actually wrote") is the
 //! job of xje.4 and lives separately.
 
-use serde_yaml_ng::Value;
 use synchrotron_plugins::Manifest;
 
 use crate::compare::{Change, Diff};
+use crate::managed_fields::path_owned_by_any;
 use crate::path::{PathSegment, ValuePath};
 
 /// Single ignore rule. Multiple rules combine disjunctively: a
@@ -169,101 +169,10 @@ fn path_glob_matches(glob: &str, path: &ValuePath) -> bool {
     true
 }
 
-/// Walk `live_body.metadata.managedFields[]` and return true if
-/// `path` is covered by an entry whose `manager` is in `allowed`.
-fn path_owned_by_any(path: &ValuePath, live_body: &Value, allowed: &[String]) -> bool {
-    let entries = match live_body
-        .get("metadata")
-        .and_then(|m| m.get("managedFields"))
-        .and_then(|f| f.as_sequence())
-    {
-        Some(s) => s,
-        None => return false,
-    };
-    for entry in entries {
-        let manager = entry
-            .get("manager")
-            .and_then(|m| m.as_str())
-            .unwrap_or_default();
-        if !allowed.iter().any(|a| a == manager) {
-            continue;
-        }
-        let fields_v1 = match entry.get("fieldsV1") {
-            Some(v) => v,
-            None => continue,
-        };
-        if fields_v1_owns(fields_v1, &path.segments) {
-            return true;
-        }
-    }
-    false
-}
-
-/// Recursive descent through a `fieldsV1` tree. Each level is a
-/// mapping whose keys are prefixed:
-///
-/// - `f:<name>` — field of that name
-/// - `k:<json>` — keyed list element matching the JSON key map
-/// - `i:<n>` — positional list index
-///
-/// Ownership: if the path's first segment matches an entry whose
-/// child subtree is empty, this manager owns the whole subtree at
-/// that point and we report ownership of any descendant. Otherwise
-/// we recurse with the rest of the path.
-fn fields_v1_owns(node: &Value, segments: &[PathSegment]) -> bool {
-    let map = match node.as_mapping() {
-        Some(m) => m,
-        None => return false,
-    };
-    if segments.is_empty() {
-        // The caller landed on this exact field; ownership of the
-        // *node* itself is implied by having reached it via an `f:`
-        // entry. Matching here completes the walk.
-        return true;
-    }
-    let (head, tail) = (&segments[0], &segments[1..]);
-    let candidate_keys: Vec<String> = match head {
-        PathSegment::Field(name) => vec![format!("f:{name}")],
-        PathSegment::Index(i) => vec![format!("i:{i}")],
-        PathSegment::Keyed(keys) => {
-            // `k:` is followed by a JSON object of the key fields.
-            // Element order in serialized fieldsV1 is canonical, but
-            // we rebuild from our keys list which is also canonical.
-            let mut obj = String::from("{");
-            for (j, (k, v)) in keys.iter().enumerate() {
-                if j > 0 {
-                    obj.push(',');
-                }
-                obj.push('"');
-                obj.push_str(k);
-                obj.push_str("\":\"");
-                obj.push_str(v);
-                obj.push('"');
-            }
-            obj.push('}');
-            vec![format!("k:{obj}")]
-        }
-    };
-    for cand in &candidate_keys {
-        if let Some(child) = map.get(Value::String(cand.clone())) {
-            // Empty child mapping means "manager owns the entire
-            // subtree here" — anything below this point is owned.
-            let child_map = child.as_mapping();
-            if child_map.map(|m| m.is_empty()).unwrap_or(true) {
-                return true;
-            }
-            if fields_v1_owns(child, tail) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_yaml_ng::from_str;
+    use serde_yaml_ng::{from_str, Value};
     use synchrotron_plugins::Gvk;
 
     fn manifest(yaml: &str) -> Manifest {
