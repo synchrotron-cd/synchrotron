@@ -31,6 +31,7 @@
 //! reconciler decides "drift" vs "noop".
 
 pub mod applier;
+pub mod auto_ignore;
 pub mod compare;
 pub mod ignore;
 pub mod listmap;
@@ -39,6 +40,9 @@ pub mod ownership;
 pub mod path;
 
 pub use applier::{DryRunApplier, DryRunError};
+pub use auto_ignore::{
+    auto_ignore_rules_for, parse_scaler, ControllerKind, ScalerCache, ScalerEntry, TargetRef,
+};
 pub use compare::{diff, manifests_equivalent, Change, Diff};
 pub use ignore::{path_to_json_pointer, IgnoreRule, IgnoreRules};
 pub use listmap::{ListMapKeys, ListMapKind};
