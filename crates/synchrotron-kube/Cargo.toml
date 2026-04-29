@@ -5,7 +5,10 @@ edition.workspace = true
 
 [dependencies]
 synchrotron-types.workspace = true
+synchrotron-diff.workspace = true
+synchrotron-plugins.workspace = true
 serde.workspace = true
+serde_yaml_ng = "0.10"
 thiserror.workspace = true
 tracing.workspace = true
 tokio.workspace = true

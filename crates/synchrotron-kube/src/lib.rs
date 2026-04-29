@@ -7,6 +7,7 @@
 
 mod client;
 mod config;
+pub mod dry_run;
 mod error;
 pub mod exec;
 pub mod health;
@@ -16,6 +17,7 @@ mod registry;
 
 pub use client::KubeClient;
 pub use config::{AuthSource, ClusterConfig, ClusterName};
+pub use dry_run::KubeDryRunApplier;
 pub use error::KubeError;
 pub use exec::{
     tokio_command_runner, ExecCredential, ExecCredentialCache, ExecCredentialStatus,
