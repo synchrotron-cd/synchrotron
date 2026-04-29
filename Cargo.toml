@@ -53,3 +53,12 @@ tonic = "0.12"
 prost = "0.13"
 tonic-build = "0.12"
 protoc-bin-vendored = "3"
+
+# Optimize release builds for size and link-time inlining. Static
+# musl binaries are the deployment artifact, so a few extra minutes
+# of build time buys meaningful size and runtime wins.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+opt-level = 3

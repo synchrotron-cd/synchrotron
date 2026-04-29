@@ -1,0 +1,141 @@
+name: release
+
+# Cuts a release on every `v*` tag: cross-compiles static musl
+# binaries for linux/amd64 and linux/arm64, attests build provenance
+# (SLSA v1 via GitHub's OIDC-backed signer), and publishes tarballs
+# plus an aggregated SHA256SUMS file to the GitHub release.
+#
+# `workflow_dispatch` exists so the build matrix can be exercised
+# without cutting a release — useful when bumping toolchains or
+# debugging the cross-compile path.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  RUSTFLAGS: '-D warnings'
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            use_cross: false
+          - target: aarch64-unknown-linux-musl
+            use_cross: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install musl-tools (native)
+        if: ${{ !matrix.use_cross }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Install cross (cross-compile)
+        if: ${{ matrix.use_cross }}
+        run: cargo install cross --locked --git https://github.com/cross-rs/cross
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build release binaries
+        run: |
+          set -euo pipefail
+          BUILDER="cargo"
+          if [[ "${{ matrix.use_cross }}" == "true" ]]; then
+            BUILDER="cross"
+          fi
+          $BUILDER build --release --locked --target ${{ matrix.target }} \
+            --bin synchrotron-server \
+            --bin synchrotron \
+            --bin synchrotron-helm-plugin \
+            --bin synchrotron-kustomize-plugin
+
+      - name: Package tarball
+        id: pkg
+        run: |
+          set -euo pipefail
+          REF="${GITHUB_REF_NAME:-}"
+          if [[ "$REF" == v* ]]; then
+            VERSION="${REF#v}"
+          else
+            VERSION="0.0.0-${GITHUB_SHA::7}"
+          fi
+          NAME="synchrotron-${VERSION}-${{ matrix.target }}"
+          OUT="dist/${NAME}"
+          mkdir -p "$OUT"
+          for bin in synchrotron-server synchrotron synchrotron-helm-plugin synchrotron-kustomize-plugin; do
+            cp "target/${{ matrix.target }}/release/${bin}" "$OUT/"
+          done
+          tar -czf "dist/${NAME}.tar.gz" -C dist "${NAME}"
+          (cd dist && sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          ls -lh "dist/${NAME}.tar.gz"
+          ls -lh "$OUT"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/${{ steps.pkg.outputs.name }}.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pkg.outputs.name }}
+          path: |
+            dist/${{ steps.pkg.outputs.name }}.tar.gz
+            dist/${{ steps.pkg.outputs.name }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Aggregate checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          # Drop per-file .sha256 stubs in favor of one aggregated file
+          # alongside the artifacts; consumers verify with `sha256sum -c`.
+          sha256sum *.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          generate_release_notes: true
+          fail_on_unmatched_files: true
