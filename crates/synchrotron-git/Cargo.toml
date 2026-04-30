@@ -14,6 +14,7 @@ sha1 = "0.10"
 hmac = "0.12"
 subtle = "2"
 hex = "0.4"
+base64 = "0.22"
 serde_json.workspace = true
 jsonwebtoken = "9"
 tokio = { workspace = true, features = ["sync", "rt", "time", "macros"] }

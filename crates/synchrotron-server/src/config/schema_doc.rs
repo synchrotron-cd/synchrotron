@@ -54,6 +54,15 @@ timeouts:
   reconcile_seconds: 300
   # Hard cap on a single git fetch.
   git_fetch_seconds: 120
+
+git:
+  ssh:
+    # OpenSSH-style strict_host_key_checking. Production should keep
+    # the default (yes); accept-new enables TOFU; no disables verification.
+    strict_host_key_checking: yes
+    # Defaults to $HOME/.ssh/known_hosts. A missing file is treated as
+    # empty — accept-new mode creates it on first contact.
+    # known_hosts: /etc/synchrotron/known_hosts
 "#
     .to_string()
 }

@@ -1,12 +1,17 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-use git2::{Cred, CredentialType, FetchOptions, ObjectType, RemoteCallbacks, Repository, Tree};
+use git2::{
+    cert::Cert, CertificateCheckStatus, Cred, CredentialType, FetchOptions, ObjectType,
+    RemoteCallbacks, Repository, Tree,
+};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::credentials::Credentials;
 use crate::error::GitError;
+use crate::known_hosts::HostVerifier;
 use crate::repo::Repo;
 use crate::workspace::Workspace;
 use crate::Result;
@@ -40,11 +45,32 @@ pub struct FetchResult {
 /// wrap calls in `tokio::task::spawn_blocking`.
 pub struct GitClient {
     workspace: Workspace,
+    /// Shared so the libgit2 `certificate_check` callback can mutate
+    /// it (TOFU writes new entries) without leaking lifetimes into
+    /// the public API.
+    host_verifier: Arc<Mutex<HostVerifier>>,
 }
 
 impl GitClient {
+    /// Create a client with verification disabled. Suitable for
+    /// `file://` integration tests; production callers should use
+    /// [`Self::with_host_verifier`] and pass a real
+    /// [`HostVerifier`].
     pub fn new(workspace: Workspace) -> Self {
-        Self { workspace }
+        Self {
+            workspace,
+            host_verifier: Arc::new(Mutex::new(HostVerifier::insecure())),
+        }
+    }
+
+    /// Create a client that verifies SSH host keys per the given
+    /// [`HostVerifier`]. HTTPS transports are unaffected — libgit2
+    /// already validates X.509 certs against the system trust store.
+    pub fn with_host_verifier(workspace: Workspace, verifier: HostVerifier) -> Self {
+        Self {
+            workspace,
+            host_verifier: Arc::new(Mutex::new(verifier)),
+        }
     }
 
     pub fn workspace(&self) -> &Workspace {
@@ -75,7 +101,7 @@ impl GitClient {
         );
 
         let credentials = repo.credentials.clone();
-        let callbacks = build_callbacks(credentials);
+        let callbacks = build_callbacks(credentials, Arc::clone(&self.host_verifier));
         let mut fetch_opts = FetchOptions::new();
         fetch_opts.remote_callbacks(callbacks);
         if let Some(depth) = repo.depth {
@@ -103,7 +129,7 @@ impl GitClient {
         let previous_head = read_branch_head(&bare, &repo.branch).ok();
 
         let credentials = repo.credentials.clone();
-        let callbacks = build_callbacks(credentials);
+        let callbacks = build_callbacks(credentials, Arc::clone(&self.host_verifier));
         let mut fetch_opts = FetchOptions::new();
         fetch_opts.remote_callbacks(callbacks);
         if let Some(depth) = repo.depth {
@@ -163,12 +189,95 @@ impl GitClient {
     }
 }
 
-fn build_callbacks(credentials: Credentials) -> RemoteCallbacks<'static> {
+fn build_callbacks(
+    credentials: Credentials,
+    host_verifier: Arc<Mutex<HostVerifier>>,
+) -> RemoteCallbacks<'static> {
     let mut callbacks = RemoteCallbacks::new();
     callbacks.credentials(move |_url, username_from_url, allowed| {
         select_credential(&credentials, username_from_url, allowed)
     });
+    callbacks.certificate_check(move |cert, host| verify_certificate(cert, host, &host_verifier));
     callbacks
+}
+
+/// libgit2's `certificate_check` hook. For SSH transports the cert
+/// is `Cert::Hostkey`; for HTTPS it's `Cert::X509` (which we hand
+/// back to libgit2's default trust store via `CertificatePassthrough`).
+///
+/// The `host` argument from libgit2 is `host[:port]`; we split it
+/// before passing to the verifier.
+fn verify_certificate(
+    cert: &Cert<'_>,
+    host: &str,
+    host_verifier: &Arc<Mutex<HostVerifier>>,
+) -> std::result::Result<CertificateCheckStatus, git2::Error> {
+    let hostkey = match cert.as_hostkey() {
+        Some(hk) => hk,
+        // HTTPS / unknown: defer to libgit2's built-in checks.
+        None => return Ok(CertificateCheckStatus::CertificatePassthrough),
+    };
+    let key_bytes = match hostkey.hostkey() {
+        Some(b) => b,
+        None => {
+            return Err(git2::Error::from_str(
+                "SSH host presented no key bytes; refusing to trust",
+            ));
+        }
+    };
+    let key_type = match hostkey.hostkey_type() {
+        Some(t) => hostkey_type_str(t),
+        None => {
+            return Err(git2::Error::from_str(
+                "SSH host key type unknown; refusing to trust",
+            ));
+        }
+    };
+
+    let (hostname, port) = split_host_port(host);
+    let mut verifier = host_verifier
+        .lock()
+        .map_err(|_| git2::Error::from_str("host verifier mutex poisoned"))?;
+    match verifier.check(hostname, port, key_type, key_bytes) {
+        Ok(()) => Ok(CertificateCheckStatus::CertificateOk),
+        Err(e) => {
+            warn!(host = hostname, error = %e, "SSH host key verification failed");
+            Err(git2::Error::from_str(&format!(
+                "SSH host key verification failed for {hostname}: {e}"
+            )))
+        }
+    }
+}
+
+fn hostkey_type_str(t: git2::cert::SshHostKeyType) -> &'static str {
+    use git2::cert::SshHostKeyType;
+    match t {
+        SshHostKeyType::Rsa => "ssh-rsa",
+        SshHostKeyType::Dss => "ssh-dss",
+        SshHostKeyType::Ecdsa256 => "ecdsa-sha2-nistp256",
+        SshHostKeyType::Ecdsa384 => "ecdsa-sha2-nistp384",
+        SshHostKeyType::Ecdsa521 => "ecdsa-sha2-nistp521",
+        SshHostKeyType::Ed255219 => "ssh-ed25519",
+        // libgit2 may report Unknown; we surface the best string we have.
+        _ => "ssh-unknown",
+    }
+}
+
+fn split_host_port(host: &str) -> (&str, u16) {
+    if let Some(rest) = host.strip_prefix('[') {
+        // [host]:port form
+        if let Some((h, p)) = rest.split_once("]:") {
+            if let Ok(port) = p.parse::<u16>() {
+                return (h, port);
+            }
+        }
+    }
+    if let Some((h, p)) = host.rsplit_once(':') {
+        if let Ok(port) = p.parse::<u16>() {
+            return (h, port);
+        }
+    }
+    (host, 22)
 }
 
 /// Translate a [`Credentials`] choice into a libgit2 [`Cred`] for the

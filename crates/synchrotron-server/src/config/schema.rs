@@ -25,6 +25,8 @@ pub struct Config {
     pub polling: Polling,
     #[serde(default)]
     pub timeouts: Timeouts,
+    #[serde(default)]
+    pub git: GitSection,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -168,4 +170,79 @@ fn default_reconcile_timeout() -> u64 {
 
 fn default_git_fetch_timeout() -> u64 {
     120
+}
+
+/// Git transport settings.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GitSection {
+    #[serde(default)]
+    pub ssh: SshSection,
+}
+
+/// SSH-specific transport settings.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SshSection {
+    /// Mirrors OpenSSH's StrictHostKeyChecking.
+    /// `yes` (default): reject unknown hosts.
+    /// `accept-new`: TOFU — append new keys, then verify on subsequent fetches.
+    /// `ask`: same as `yes` for this non-interactive process; logs a warning.
+    /// `no`: skip verification entirely. Unsafe.
+    #[serde(default)]
+    pub strict_host_key_checking: SshHostKeyMode,
+    /// Path to known_hosts. Defaults to `$HOME/.ssh/known_hosts`.
+    /// A missing file is treated as empty; in `accept-new` mode the
+    /// file is created on first contact.
+    #[serde(default)]
+    pub known_hosts: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum SshHostKeyMode {
+    #[default]
+    Yes,
+    Ask,
+    AcceptNew,
+    No,
+}
+
+impl From<SshHostKeyMode> for synchrotron_git::HostKeyMode {
+    fn from(m: SshHostKeyMode) -> Self {
+        match m {
+            SshHostKeyMode::Yes => synchrotron_git::HostKeyMode::Yes,
+            SshHostKeyMode::Ask => synchrotron_git::HostKeyMode::Ask,
+            SshHostKeyMode::AcceptNew => synchrotron_git::HostKeyMode::AcceptNew,
+            SshHostKeyMode::No => synchrotron_git::HostKeyMode::No,
+        }
+    }
+}
+
+impl SshSection {
+    /// Build a [`synchrotron_git::HostVerifier`] from this config
+    /// section. Resolves the known_hosts path: explicit override
+    /// wins, otherwise `$HOME/.ssh/known_hosts`. A missing file is
+    /// treated as empty — `AcceptNew` mode will create it on first
+    /// contact.
+    pub fn to_host_verifier(&self) -> Result<synchrotron_git::HostVerifier, std::io::Error> {
+        let path = match &self.known_hosts {
+            Some(p) => p.clone(),
+            None => default_known_hosts_path()?,
+        };
+        let file = synchrotron_git::KnownHostsFile::load(&path).map_err(|e| match e {
+            synchrotron_git::GitError::Io { source, .. } => source,
+            other => std::io::Error::other(other.to_string()),
+        })?;
+        Ok(synchrotron_git::HostVerifier::new(
+            self.strict_host_key_checking.into(),
+            file,
+        ))
+    }
+}
+
+fn default_known_hosts_path() -> Result<PathBuf, std::io::Error> {
+    let home = std::env::var_os("HOME")
+        .ok_or_else(|| std::io::Error::other("$HOME is not set; specify git.ssh.known_hosts"))?;
+    Ok(PathBuf::from(home).join(".ssh").join("known_hosts"))
 }

@@ -26,7 +26,10 @@ pub mod schema_doc;
 pub mod validate;
 
 pub use reload::{ConfigHandle, ReloadError};
-pub use schema::{ClusterCfg, Config, PluginCfg, Polling, RepoCfg, ServerSection, Timeouts};
+pub use schema::{
+    ClusterCfg, Config, GitSection, PluginCfg, Polling, RepoCfg, ServerSection, SshHostKeyMode,
+    SshSection, Timeouts,
+};
 pub use schema_doc::config_template;
 pub use validate::{validate, ValidationError};
 
