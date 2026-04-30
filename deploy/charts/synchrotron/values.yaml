@@ -134,19 +134,21 @@ metrics:
     # -- Additional labels to attach (e.g. for Prom selector).
     labels: {}
 
-# Liveness / readiness probes. TCP probes are used by default because
-# /healthz and /readyz HTTP endpoints aren't wired yet (tracked in
-# beads). Switch to httpGet when those land.
+# Liveness / readiness probes hit the HTTP API surface.
+# /healthz: 200 once axum is serving.
+# /readyz: 200 once startup (DB, config) has completed; 503 before.
 probes:
   liveness:
-    tcpSocket:
+    httpGet:
+      path: /healthz
       port: http
     initialDelaySeconds: 10
     periodSeconds: 10
   readiness:
-    tcpSocket:
+    httpGet:
+      path: /readyz
       port: http
-    initialDelaySeconds: 5
+    initialDelaySeconds: 2
     periodSeconds: 5
 
 # Extra environment variables passed to the controller.

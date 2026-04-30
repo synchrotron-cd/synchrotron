@@ -65,8 +65,8 @@ require a CRD bump.
 | `securityContext` | `readOnlyRootFilesystem`, no caps | Container security context. |
 | `metrics.serviceMonitor.enabled` | `false` | Create a Prometheus ServiceMonitor. |
 | `metrics.serviceMonitor.interval` | `30s` | Scrape interval. |
-| `probes.liveness` | tcpSocket on `http` | Liveness probe (TCP for now; HTTP endpoints pending). |
-| `probes.readiness` | tcpSocket on `http` | Readiness probe (TCP for now; HTTP endpoints pending). |
+| `probes.liveness` | `GET /healthz` | Liveness probe (200 once axum is serving). |
+| `probes.readiness` | `GET /readyz` | Readiness probe (200 once DB+config startup completes). |
 | `config` | (see `values.yaml`) | Synchrotron config — rendered to a ConfigMap. |
 | `extraEnv` | `[]` | Extra env vars. |
 | `extraVolumes` | `[]` | Extra volumes. |

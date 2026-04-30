@@ -7,6 +7,7 @@ use std::sync::Arc;
 use axum::{routing::get, Router};
 use synchrotron_core::metrics::Metrics;
 
+pub use health::{probes_router, ReadinessGate};
 pub use webhooks::{WebhookSecrets, WebhookState};
 
 pub fn router() -> Router {

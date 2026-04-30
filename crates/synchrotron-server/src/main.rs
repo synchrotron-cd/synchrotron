@@ -37,10 +37,16 @@ async fn main() -> anyhow::Result<()> {
     info!("database initialized");
 
     let metrics = Arc::new(Metrics::new());
-    let app = api::router().merge(api::metrics_router(metrics));
+    let readiness = api::ReadinessGate::new();
+    let app = api::router()
+        .merge(api::metrics_router(metrics))
+        .merge(api::probes_router(readiness.clone()));
 
     let listener = tokio::net::TcpListener::bind(&cfg.server.listen_addr).await?;
     info!("listening on {}", cfg.server.listen_addr);
+    // Initialization complete: DB open, config loaded, listener
+    // bound. Flip readiness so kubelet routes traffic.
+    readiness.mark_ready();
     axum::serve(listener, app).await?;
 
     Ok(())
