@@ -1,0 +1,58 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: applicationsets.synchrotron.io
+  labels:
+    app.kubernetes.io/name: synchrotron
+    app.kubernetes.io/part-of: synchrotron
+spec:
+  group: synchrotron.io
+  scope: Namespaced
+  names:
+    kind: ApplicationSet
+    listKind: ApplicationSetList
+    singular: applicationset
+    plural: applicationsets
+    shortNames:
+      - appset
+    categories:
+      - synchrotron
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Generators
+          type: integer
+          jsonPath: .status.generatorCount
+        - name: Apps
+          type: integer
+          jsonPath: .status.applicationCount
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - generators
+                - template
+              properties:
+                generators:
+                  type: array
+                  items:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+                template:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true

@@ -1,0 +1,84 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: applications.synchrotron.io
+  labels:
+    app.kubernetes.io/name: synchrotron
+    app.kubernetes.io/part-of: synchrotron
+spec:
+  group: synchrotron.io
+  scope: Namespaced
+  names:
+    kind: Application
+    listKind: ApplicationList
+    singular: application
+    plural: applications
+    shortNames:
+      - app
+      - syncapp
+    categories:
+      - synchrotron
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Sync
+          type: string
+          jsonPath: .status.sync.status
+        - name: Health
+          type: string
+          jsonPath: .status.health.status
+        - name: Revision
+          type: string
+          jsonPath: .status.sync.revision
+          priority: 1
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        # Spec is intentionally permissive at v1alpha1 — the
+        # controller validates semantically, not via CRD schema, so
+        # operators can extend without bumping the CRD version on
+        # every spec field added. Status is fully open for the same
+        # reason. Tightening lands when the API graduates to v1beta1.
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - source
+                - destination
+              properties:
+                source:
+                  type: object
+                  required:
+                    - repoURL
+                  properties:
+                    repoURL:
+                      type: string
+                    path:
+                      type: string
+                    targetRevision:
+                      type: string
+                    plugin:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                destination:
+                  type: object
+                  properties:
+                    cluster:
+                      type: string
+                    namespace:
+                      type: string
+                syncPolicy:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true

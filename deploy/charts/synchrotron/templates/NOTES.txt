@@ -1,0 +1,31 @@
+Synchrotron-CD has been installed in namespace {{ .Release.Namespace }}.
+
+Watch the rollout:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "synchrotron.fullname" . }}
+
+Check controller logs:
+  kubectl -n {{ .Release.Namespace }} logs -l app.kubernetes.io/name={{ include "synchrotron.name" . }} -f
+
+Port-forward the API + /metrics endpoint:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "synchrotron.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+
+Define your first Application:
+  kubectl apply -f - <<EOF
+  apiVersion: synchrotron.io/v1alpha1
+  kind: Application
+  metadata:
+    name: example
+    namespace: {{ .Release.Namespace }}
+  spec:
+    source:
+      repoURL: https://github.com/<org>/<repo>
+      path: deploy/example
+      targetRevision: main
+    destination:
+      cluster: in-cluster
+      namespace: default
+  EOF
+
+CRDs are managed via the chart's crds/ directory and are NOT
+upgraded by `helm upgrade`. To upgrade CRDs, apply them directly:
+  kubectl apply -f https://github.com/jsightler/synchrotron-cd/releases/download/v{{ .Chart.AppVersion }}/crds.yaml

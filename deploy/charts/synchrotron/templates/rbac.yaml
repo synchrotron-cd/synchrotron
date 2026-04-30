@@ -1,0 +1,41 @@
+{{- if .Values.rbac.create -}}
+# Cluster-wide read+write to the resources Synchrotron reconciles.
+# Synchrotron applies arbitrary user manifests, so the role must be
+# broad. Operators wanting to scope this down can disable rbac.create
+# and provide their own (Cluster)Role bindings.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "synchrotron.fullname" . }}
+  labels:
+    {{- include "synchrotron.labels" . | nindent 4 }}
+rules:
+  # Wildcard apply over user-managed resources. Synchrotron is the
+  # field manager; per-resource ownership is enforced by SSA, not RBAC.
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Synchrotron's own CRDs and events.
+  - apiGroups: ["synchrotron.io"]
+    resources: ["*"]
+    verbs: ["*"]
+  # Required for leader election.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "synchrotron.fullname" . }}
+  labels:
+    {{- include "synchrotron.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "synchrotron.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "synchrotron.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

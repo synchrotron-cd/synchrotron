@@ -1,0 +1,108 @@
+name: helm
+
+# Runs on every push/PR that touches the chart. Verifies the chart
+# lints clean, templates render against multiple value sets, and
+# (on PRs) installs end-to-end on an ephemeral kind cluster — the
+# closest signal to "helm install synchrotron works" without a real
+# cluster on hand.
+
+on:
+  pull_request:
+    paths:
+      - 'deploy/charts/**'
+      - '.github/workflows/helm.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'deploy/charts/**'
+      - '.github/workflows/helm.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint + template
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: helm lint
+        run: helm lint deploy/charts/synchrotron
+
+      - name: helm template (defaults)
+        run: helm template synchrotron deploy/charts/synchrotron > /tmp/default.yaml
+
+      - name: helm template (no persistence, ServiceMonitor on)
+        run: |
+          helm template synchrotron deploy/charts/synchrotron \
+            --set persistence.enabled=false \
+            --set metrics.serviceMonitor.enabled=true \
+            > /tmp/no-persist-sm.yaml
+
+      - name: kubeconform validate
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+            | tar -xz -C /usr/local/bin kubeconform
+          # Skip CRD-typed objects (Application, ApplicationSet) since
+          # the schema set doesn't ship them. Built-in K8s types are
+          # validated strictly.
+          kubeconform -strict -ignore-missing-schemas -summary /tmp/default.yaml
+          kubeconform -strict -ignore-missing-schemas -summary /tmp/no-persist-sm.yaml
+
+  install:
+    name: install on kind
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+      - uses: helm/kind-action@v1
+        with:
+          version: v0.24.0
+          cluster_name: synchrotron-test
+
+      - name: Install chart
+        run: |
+          # Skip pulling the real image — it's not yet published. Use a
+          # placeholder that won't crashloop the API server. The point
+          # of this job is to verify CRDs + RBAC + manifests apply
+          # cleanly; runtime startup is exercised in the controller's
+          # own integration tests.
+          kubectl create namespace synchrotron-system
+          helm install synchrotron deploy/charts/synchrotron \
+            --namespace synchrotron-system \
+            --set image.repository=registry.k8s.io/pause \
+            --set image.tag=3.9 \
+            --set persistence.enabled=false \
+            --wait --timeout 3m
+
+      - name: Verify resources
+        run: |
+          kubectl -n synchrotron-system get all
+          kubectl get crd applications.synchrotron.io applicationsets.synchrotron.io
+          kubectl -n synchrotron-system rollout status deploy/synchrotron --timeout=120s
+
+      - name: Apply a sample Application CR
+        run: |
+          cat <<'EOF' | kubectl apply -f -
+          apiVersion: synchrotron.io/v1alpha1
+          kind: Application
+          metadata:
+            name: smoke
+            namespace: synchrotron-system
+          spec:
+            source:
+              repoURL: https://example.com/example.git
+              path: deploy
+              targetRevision: main
+            destination:
+              cluster: in-cluster
+              namespace: default
+          EOF
+          kubectl -n synchrotron-system get applications.synchrotron.io smoke -o yaml

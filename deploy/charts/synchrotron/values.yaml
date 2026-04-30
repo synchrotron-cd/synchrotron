@@ -1,0 +1,158 @@
+# Default values for synchrotron.
+#
+# Every key below is consumed by a template. Comments document
+# operator-facing behavior; if you change a default, update the
+# README's values table to match.
+
+# -- Override the chart name in resource names. By default,
+# resources are prefixed with the release name.
+nameOverride: ""
+# -- Override the full release-qualified name used by every
+# resource. Useful when retrofitting an existing deployment.
+fullnameOverride: ""
+
+image:
+  # -- Container image repository for `synchrotron-server`.
+  repository: ghcr.io/jsightler/synchrotron-server
+  # -- Image pull policy. `IfNotPresent` is correct for tagged
+  # releases; switch to `Always` when running `:latest`.
+  pullPolicy: IfNotPresent
+  # -- Image tag. Defaults to `.Chart.AppVersion`.
+  tag: ""
+
+# -- Image pull secrets, e.g. for private registries.
+imagePullSecrets: []
+
+# -- Number of controller replicas. Synchrotron uses leader
+# election so only one replica reconciles at a time; extra
+# replicas exist for fast failover.
+replicaCount: 1
+
+# Pod-level scheduling and runtime knobs.
+podAnnotations: {}
+podLabels: {}
+# -- Pod-level securityContext. Defaults to a non-root,
+# read-only-root-fs profile suitable for restricted PSS.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+# -- Container-level securityContext.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# -- Resource requests/limits for the controller pod. These are
+# starting points; tune based on cluster size and reconcile load.
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+# -- nodeSelector for pod scheduling.
+nodeSelector: {}
+# -- tolerations for pod scheduling.
+tolerations: []
+# -- affinity rules for pod scheduling.
+affinity: {}
+# -- topologySpreadConstraints for HA across zones/nodes.
+topologySpreadConstraints: []
+
+service:
+  # -- Service type. ClusterIP is correct for in-cluster API access.
+  type: ClusterIP
+  # -- Port exposing the HTTP API and `/metrics` endpoint.
+  port: 8484
+  # -- Optional Service annotations (e.g. for cloud LB controllers).
+  annotations: {}
+
+serviceAccount:
+  # -- Whether to create a dedicated ServiceAccount.
+  create: true
+  # -- Annotations to add to the ServiceAccount (e.g. IRSA / GKE WI).
+  annotations: {}
+  # -- Override the ServiceAccount name. Defaults to the fullname.
+  name: ""
+
+rbac:
+  # -- Whether to create the cluster-wide RBAC resources required
+  # for cross-namespace reconciliation. Disable only if you manage
+  # RBAC out-of-band.
+  create: true
+
+# State persistence. Synchrotron stores its database (SQLite by
+# default) and git working trees on disk.
+persistence:
+  # -- Use a PersistentVolumeClaim for state. When false an
+  # emptyDir is used and state is lost on pod restart — only
+  # appropriate for ephemeral test environments.
+  enabled: true
+  # -- StorageClass name. Empty string uses the cluster default.
+  storageClass: ""
+  # -- Volume size for the state PVC.
+  size: 10Gi
+  # -- Access modes.
+  accessModes:
+    - ReadWriteOnce
+
+# Synchrotron config (rendered to a ConfigMap, mounted at /etc/synchrotron/config.yaml).
+# Schema documented at BUILD.md and `synchrotron config init`.
+config:
+  server:
+    listen_addr: "0.0.0.0:8484"
+    db_path: /var/lib/synchrotron/synchrotron.db
+  # Manage the in-cluster pod's own kube context. Override this if
+  # the controller should manage external clusters.
+  clusters:
+    - name: in-cluster
+      in_cluster: true
+  repos: []
+  plugins: []
+  polling:
+    repo_interval_seconds: 180
+    auto_heal_interval_seconds: 600
+  timeouts:
+    reconcile_seconds: 300
+    git_fetch_seconds: 120
+
+metrics:
+  # -- Whether to create a Prometheus ServiceMonitor. Requires the
+  # Prometheus Operator CRDs to be installed in the cluster.
+  serviceMonitor:
+    enabled: false
+    # -- Override scrape interval.
+    interval: 30s
+    # -- Additional labels to attach (e.g. for Prom selector).
+    labels: {}
+
+# Liveness / readiness probes. TCP probes are used by default because
+# /healthz and /readyz HTTP endpoints aren't wired yet (tracked in
+# beads). Switch to httpGet when those land.
+probes:
+  liveness:
+    tcpSocket:
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 10
+  readiness:
+    tcpSocket:
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 5
+
+# Extra environment variables passed to the controller.
+extraEnv: []
+# -- Extra volumes mounted into the controller pod (e.g. for
+# kubeconfigs of external clusters).
+extraVolumes: []
+# -- Extra volume mounts paired with `extraVolumes`.
+extraVolumeMounts: []

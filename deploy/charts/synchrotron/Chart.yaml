@@ -1,0 +1,25 @@
+apiVersion: v2
+name: synchrotron
+description: GitOps continuous delivery for Kubernetes
+type: application
+# `version` is the chart version. `appVersion` tracks the
+# synchrotron-server release the chart was authored against.
+# Keep them in lockstep until the chart graduates from v0.x.
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.27.0-0"
+keywords:
+  - gitops
+  - cd
+  - argocd
+  - synchrotron
+home: https://github.com/jsightler/synchrotron-cd
+sources:
+  - https://github.com/jsightler/synchrotron-cd
+maintainers:
+  - name: Jesse Sightler
+icon: ""
+annotations:
+  # Helm convention; consumed by Artifact Hub.
+  artifacthub.io/category: integration-delivery
+  artifacthub.io/license: Apache-2.0
