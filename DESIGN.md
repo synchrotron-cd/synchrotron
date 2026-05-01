@@ -389,7 +389,7 @@ Depends on: All core components (this is the user-facing layer).
 - [ ] Installation and setup (single binary + CRDs, or Helm chart)
 - [ ] Configuration management
 - [ ] Monitoring and observability (Prometheus metrics, structured logging)
-- [ ] Multi-cluster deployment patterns
+- [x] Multi-cluster deployment patterns ([docs/multi-cluster.md](docs/multi-cluster.md))
 
 ### Performance Targets
 - [ ] Git reconciliation latency (target: <5s from webhook to sync start)
