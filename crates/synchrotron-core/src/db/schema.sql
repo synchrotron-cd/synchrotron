@@ -59,4 +59,6 @@ CREATE TABLE IF NOT EXISTS sync_history (
 CREATE INDEX IF NOT EXISTS idx_sync_history_app_id ON sync_history(app_id);
 CREATE INDEX IF NOT EXISTS idx_sync_history_started_at ON sync_history(started_at);
 
-INSERT INTO schema_migrations (version) VALUES (1);
+-- INSERT OR IGNORE: applying this file against an already-migrated
+-- DB must be a no-op so the migration runner can be safely retried.
+INSERT OR IGNORE INTO schema_migrations (version) VALUES (1);

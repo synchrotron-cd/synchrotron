@@ -20,4 +20,4 @@ CREATE TABLE IF NOT EXISTS app_cache_entries (
 CREATE INDEX IF NOT EXISTS idx_app_cache_updated_at
     ON app_cache_entries(updated_at DESC);
 
-INSERT INTO schema_migrations (version) VALUES (2);
+INSERT OR IGNORE INTO schema_migrations (version) VALUES (2);

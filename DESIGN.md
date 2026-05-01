@@ -390,6 +390,7 @@ Depends on: All core components (this is the user-facing layer).
 - [ ] Configuration management
 - [ ] Monitoring and observability (Prometheus metrics, structured logging)
 - [x] Multi-cluster deployment patterns ([docs/multi-cluster.md](docs/multi-cluster.md))
+- [x] Upgrade/migration strategy ([docs/upgrades.md](docs/upgrades.md))
 
 ### Performance Targets
 - [ ] Git reconciliation latency (target: <5s from webhook to sync start)
