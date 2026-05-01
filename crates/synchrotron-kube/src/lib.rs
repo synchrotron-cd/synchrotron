@@ -14,6 +14,7 @@ pub mod health;
 pub mod informer;
 pub mod oidc;
 mod registry;
+pub mod scaler_discovery;
 
 pub use client::KubeClient;
 pub use config::{AuthSource, ClusterConfig, ClusterName};
@@ -27,5 +28,6 @@ pub use health::{HealthConfig, HealthMonitor, HealthState};
 pub use informer::{Informer, InformerConfig, InformerEvent};
 pub use oidc::{OidcConfig, OidcToken, OidcTokenCache, Refresher};
 pub use registry::ClusterRegistry;
+pub use scaler_discovery::ScalerDiscovery;
 
 pub type Result<T> = std::result::Result<T, KubeError>;

@@ -62,7 +62,7 @@ impl TargetRef {
 
 /// Which kind of controller produced an entry. Carried for
 /// diagnostics — the cache lookup itself doesn't care.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ControllerKind {
     Hpa,
     Vpa,
