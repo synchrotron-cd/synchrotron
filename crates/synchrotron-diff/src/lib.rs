@@ -38,6 +38,7 @@ pub mod listmap;
 pub mod managed_fields;
 pub mod ownership;
 pub mod path;
+pub mod pipeline;
 
 pub use applier::{DryRunApplier, DryRunError};
 pub use auto_ignore::{
@@ -48,3 +49,4 @@ pub use ignore::{path_to_json_pointer, IgnoreRule, IgnoreRules};
 pub use listmap::{ListMapKeys, ListMapKind};
 pub use ownership::{FieldOwnershipFilter, FilteredDiff};
 pub use path::{PathSegment, ValuePath};
+pub use pipeline::SmartDiffPipeline;
