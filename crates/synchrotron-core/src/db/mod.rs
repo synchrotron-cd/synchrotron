@@ -3,11 +3,13 @@ pub mod app_repo;
 pub mod migrations;
 pub mod owned_resources_repo;
 pub mod sync_history_repo;
+pub mod sync_revisions_repo;
 
 use std::path::Path;
 use tracing::info;
 
 pub use sync_history_repo::{SyncRecord, SyncRecordStatus, SyncTrigger};
+pub use sync_revisions_repo::{SyncRevision, DEFAULT_RETENTION};
 
 pub struct Database {
     conn: rusqlite::Connection,
@@ -60,7 +62,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, crate::db::migrations::LATEST_VERSION);
     }
 
     #[test]

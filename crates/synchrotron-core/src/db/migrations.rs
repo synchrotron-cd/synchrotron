@@ -24,10 +24,11 @@ use tracing::info;
 const SCHEMA_V1: &str = include_str!("schema.sql");
 const SCHEMA_V2: &str = include_str!("schema_v2.sql");
 const SCHEMA_V3: &str = include_str!("schema_v3.sql");
+const SCHEMA_V4: &str = include_str!("schema_v4.sql");
 
 /// Highest schema version this binary knows about. The DB must be
 /// at exactly this version after [`run_migrations`] returns.
-pub const LATEST_VERSION: i64 = 3;
+pub const LATEST_VERSION: i64 = 4;
 
 /// Run all pending migrations. Safe to call against a fresh DB or
 /// one already at the latest version.
@@ -45,6 +46,10 @@ pub fn run_migrations(conn: &Connection) -> rusqlite::Result<()> {
     if current < 3 {
         info!("applying migration v3: app owned-resources tracking");
         apply_migration(conn, SCHEMA_V3)?;
+    }
+    if current < 4 {
+        info!("applying migration v4: app sync history");
+        apply_migration(conn, SCHEMA_V4)?;
     }
 
     Ok(())
@@ -115,6 +120,7 @@ mod tests {
         conn.execute_batch(SCHEMA_V1).unwrap();
         conn.execute_batch(SCHEMA_V2).unwrap();
         conn.execute_batch(SCHEMA_V3).unwrap();
+        conn.execute_batch(SCHEMA_V4).unwrap();
         assert_eq!(get_current_version(&conn), LATEST_VERSION);
     }
 
