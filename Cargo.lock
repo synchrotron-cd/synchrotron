@@ -2833,10 +2833,15 @@ dependencies = [
 name = "synchrotron-reconcile"
 version = "0.1.0"
 dependencies = [
+ "kube",
+ "rusqlite",
+ "serde_json",
  "serde_yaml_ng",
  "synchrotron-core",
+ "synchrotron-kube",
  "synchrotron-plugins",
  "synchrotron-types",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
