@@ -2852,9 +2852,11 @@ name = "synchrotron-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-stream",
  "axum 0.8.8",
  "bytes",
  "chrono",
+ "futures-core",
  "hex",
  "hmac",
  "http-body-util",

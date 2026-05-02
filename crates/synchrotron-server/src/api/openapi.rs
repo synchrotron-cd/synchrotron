@@ -68,6 +68,7 @@ use crate::api::repos::{
         crate::api::repos::get_repo,
         crate::api::repos::update_repo,
         crate::api::repos::delete_repo,
+        crate::api::watch::watch_app,
     ),
     components(schemas(
         HealthResponse,

@@ -24,6 +24,8 @@ axum = "0.8"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 bytes = "1"
 utoipa = { version = "5", features = ["axum_extras"] }
+async-stream = "0.3"
+futures-core = "0.3"
 chrono = { workspace = true }
 uuid = { workspace = true }
 
