@@ -244,6 +244,6 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(v, 2);
+        assert!(v >= 2, "v2 migration should have run; got {v}");
     }
 }

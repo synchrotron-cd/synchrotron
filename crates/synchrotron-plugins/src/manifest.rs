@@ -31,6 +31,28 @@ impl Gvk {
     }
 }
 
+/// One resource the controller has applied for an app.
+///
+/// Persisted in the state DB and consumed by the prune sweep:
+/// reconcile time `previously_owned − currently_desired` ≡ delete
+/// candidates. Captured at apply time so the sweep doesn't need a
+/// live API lookup to honor `Prune=false`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OwnedResource {
+    pub gvk: Gvk,
+    /// `None` for cluster-scoped resources.
+    pub namespace: Option<String>,
+    pub name: String,
+    /// Sync wave at last apply time. Reverse-wave order drives
+    /// delete sequencing during prune.
+    pub wave: i32,
+    /// True if the manifest carried an opt-out annotation
+    /// (`synchrotron.io/prune: "false"` or Argo's
+    /// `argocd.argoproj.io/sync-options: Prune=false`). The prune
+    /// sweep skips these rows.
+    pub prune_disabled: bool,
+}
+
 /// A single Kubernetes manifest, carrying the full parsed body plus
 /// the identifying fields extracted from it for fast indexing.
 #[derive(Debug, Clone, Serialize, Deserialize)]

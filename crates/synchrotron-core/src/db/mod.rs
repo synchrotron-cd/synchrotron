@@ -1,6 +1,7 @@
 pub mod app_cache_repo;
 pub mod app_repo;
 pub mod migrations;
+pub mod owned_resources_repo;
 pub mod sync_history_repo;
 
 use std::path::Path;
@@ -59,7 +60,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
     }
 
     #[test]

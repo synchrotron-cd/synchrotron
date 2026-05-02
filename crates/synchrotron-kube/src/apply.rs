@@ -124,6 +124,22 @@ impl KubeSsaApplier {
         }
     }
 
+    /// Discover the `(ApiResource, ApiCapabilities)` for `gvk`, using
+    /// the shared cache. Exposed to sibling modules (e.g. `prune`) so
+    /// they reuse the same cache and discovery semantics as apply.
+    pub(crate) async fn discover(
+        &self,
+        gvk: &Gvk,
+    ) -> Result<(ApiResource, ApiCapabilities), ApplyError> {
+        self.resolve(gvk).await
+    }
+
+    /// Clone the underlying `kube::Client` for sibling modules that
+    /// need to construct their own `Api<DynamicObject>` handles.
+    pub(crate) fn client_handle(&self) -> Client {
+        self.client.clone()
+    }
+
     async fn resolve(&self, gvk: &Gvk) -> Result<(ApiResource, ApiCapabilities), ApplyError> {
         if let Some(hit) = self.cached(gvk) {
             return Ok(hit);

@@ -23,10 +23,11 @@ use tracing::info;
 
 const SCHEMA_V1: &str = include_str!("schema.sql");
 const SCHEMA_V2: &str = include_str!("schema_v2.sql");
+const SCHEMA_V3: &str = include_str!("schema_v3.sql");
 
 /// Highest schema version this binary knows about. The DB must be
 /// at exactly this version after [`run_migrations`] returns.
-pub const LATEST_VERSION: i64 = 2;
+pub const LATEST_VERSION: i64 = 3;
 
 /// Run all pending migrations. Safe to call against a fresh DB or
 /// one already at the latest version.
@@ -40,6 +41,10 @@ pub fn run_migrations(conn: &Connection) -> rusqlite::Result<()> {
     if current < 2 {
         info!("applying migration v2: app manifest cache");
         apply_migration(conn, SCHEMA_V2)?;
+    }
+    if current < 3 {
+        info!("applying migration v3: app owned-resources tracking");
+        apply_migration(conn, SCHEMA_V3)?;
     }
 
     Ok(())
@@ -109,6 +114,7 @@ mod tests {
         // Apply each schema file twice — once already, once now.
         conn.execute_batch(SCHEMA_V1).unwrap();
         conn.execute_batch(SCHEMA_V2).unwrap();
+        conn.execute_batch(SCHEMA_V3).unwrap();
         assert_eq!(get_current_version(&conn), LATEST_VERSION);
     }
 
@@ -167,13 +173,15 @@ mod tests {
         run_migrations(&conn).unwrap();
         let before = get_current_version(&conn);
 
-        // Construct a synthetic v3 that creates a table then
-        // immediately fails. The transaction should roll back the
-        // CREATE so the table is gone afterwards.
+        // Construct a synthetic future migration that creates a
+        // table then immediately fails. The transaction should roll
+        // back the CREATE so the table is gone afterwards. The
+        // version (99) is deliberately well above LATEST_VERSION so
+        // the test isn't accidentally exercising a real migration.
         let bad_sql = "
-            CREATE TABLE IF NOT EXISTS bogus_v3 (id INTEGER);
+            CREATE TABLE IF NOT EXISTS bogus_v99 (id INTEGER);
             SELECT this_is_not_a_real_function();
-            INSERT OR IGNORE INTO schema_migrations (version) VALUES (3);
+            INSERT OR IGNORE INTO schema_migrations (version) VALUES (99);
         ";
         let err = apply_migration(&conn, bad_sql);
         assert!(err.is_err());
@@ -181,7 +189,7 @@ mod tests {
 
         let surviving: Option<String> = conn
             .query_row(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='bogus_v3'",
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='bogus_v99'",
                 [],
                 |r| r.get(0),
             )
@@ -190,5 +198,48 @@ mod tests {
             surviving.is_none(),
             "rolled-back CREATE TABLE should not persist"
         );
+    }
+
+    /// A DB that stopped at v2 (older binary) must reach v3 with v2
+    /// data intact. Same shape as the v1→v2 test; together they prove
+    /// the migration ladder works one rung at a time.
+    #[test]
+    fn v2_to_v3_upgrade_path_preserves_v2_data() {
+        let conn = fresh_conn();
+        apply_migration(&conn, SCHEMA_V1).unwrap();
+        apply_migration(&conn, SCHEMA_V2).unwrap();
+        assert_eq!(get_current_version(&conn), 2);
+
+        // Insert an applications row (v1) and an app_cache_entries
+        // row (v2) so we can prove both survive v3.
+        conn.execute(
+            "INSERT INTO applications (id, name, namespace, repo_url, path, dest_cluster, dest_namespace) \
+             VALUES ('a', 'web', 'default', 'https://example/r.git', '.', 'in-cluster', 'web')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO app_cache_entries (app_id, commit_hash, params_hash, manifests_json, bytes) \
+             VALUES ('a', 'deadbeef', X'00', '[]', 2)",
+            [],
+        )
+        .unwrap();
+
+        run_migrations(&conn).unwrap();
+        assert_eq!(get_current_version(&conn), LATEST_VERSION);
+
+        let v3_table: String = conn
+            .query_row(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='app_owned_resources'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(v3_table, "app_owned_resources");
+
+        let cache_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM app_cache_entries", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(cache_count, 1, "v2 cache row should survive v3");
     }
 }
