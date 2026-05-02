@@ -27,7 +27,7 @@ use crate::api::clusters::{
     UpdateClusterRequest,
 };
 use crate::api::errors::{ApiErrorBody, ApiErrorEnvelope, ErrorCode};
-use crate::api::health::HealthResponse;
+use crate::api::health::{ComponentState, HealthResponse, ReadinessResponse};
 use crate::api::repos::{
     CreateRepoRequest, ListReposResponse, RepoView, UpdateRepoRequest,
 };
@@ -71,6 +71,8 @@ use crate::api::repos::{
     ),
     components(schemas(
         HealthResponse,
+        ReadinessResponse,
+        ComponentState,
         ApiErrorEnvelope,
         ApiErrorBody,
         ErrorCode,

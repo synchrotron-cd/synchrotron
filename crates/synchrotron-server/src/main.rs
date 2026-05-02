@@ -45,6 +45,11 @@ async fn main() -> anyhow::Result<()> {
 
     let metrics = Arc::new(Metrics::new());
     let readiness = api::ReadinessGate::new();
+    let registry = readiness.registry();
+    // The DB is up by the time we get here (open() above would have
+    // returned Err otherwise). Subsystems that come and go (cluster
+    // connectors, reconciler) report their own state as they spawn.
+    registry.report("db", api::ComponentState::Up);
     let app = api::router_with_apps(apps_state)
         .merge(api::metrics_router(metrics))
         .merge(api::probes_router(readiness.clone()));
