@@ -88,6 +88,9 @@ fn dispatch(event: &SystemEvent, pool: &PoolHandle, resolver: &dyn AppResolver) 
         SystemEvent::WebhookTriggered { repo, .. } => {
             (resolver.apps_for_repo(repo), Trigger::Webhook)
         }
+        // Operator-initiated requests target a specific app and skip
+        // the repo→apps resolver entirely.
+        SystemEvent::ManualSyncRequested { app } => (vec![app.clone()], Trigger::Manual),
         // Events that don't imply drift. Logging at trace level
         // would be noisy; these are silently ignored.
         SystemEvent::RepoUnchanged { .. }

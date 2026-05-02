@@ -45,6 +45,12 @@ pub enum SystemEvent {
         success: bool,
         message: Option<String>,
     },
+    /// An operator (CLI / REST API / dashboard) explicitly requested
+    /// a sync for `app`. The reconciler should enqueue it with
+    /// `Trigger::Manual`. Distinct from [`Self::WebhookTriggered`]
+    /// (repo-scoped) because manual requests target a specific app
+    /// and bypass the repo→apps resolver.
+    ManualSyncRequested { app: AppName },
     /// An aggregate health re-assessment completed for an app. The
     /// `status` is the worst-of across all owned resources;
     /// `message` surfaces the reason from whichever resource drove

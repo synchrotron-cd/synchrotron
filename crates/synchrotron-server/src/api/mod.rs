@@ -1,3 +1,4 @@
+pub mod apps;
 pub mod errors;
 pub mod health;
 pub mod metrics;
@@ -10,6 +11,7 @@ use axum::{routing::get, Router};
 use synchrotron_core::metrics::Metrics;
 use tower_http::trace::TraceLayer;
 
+pub use apps::AppsState;
 pub use errors::{ApiError, ApiErrorBody, ApiErrorEnvelope, ErrorCode};
 pub use health::{probes_router, ReadinessGate};
 pub use openapi::ApiDoc;
@@ -40,4 +42,15 @@ pub fn router_with_webhooks(webhook_state: WebhookState) -> Router {
     Router::new()
         .route("/api/v1/health", get(health::health_check))
         .merge(webhooks::router(webhook_state))
+}
+
+/// Build the API router wired to the apps backend (DB + event bus).
+/// Includes the public `/api/v1/health`, `/openapi.json`, and the
+/// full apps surface.
+pub fn router_with_apps(apps_state: AppsState) -> Router {
+    Router::new()
+        .route("/api/v1/health", get(health::health_check))
+        .merge(openapi::router())
+        .merge(apps::router(apps_state))
+        .layer(TraceLayer::new_for_http())
 }

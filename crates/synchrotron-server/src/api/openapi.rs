@@ -18,6 +18,10 @@
 use axum::{response::Json, routing::get, Router};
 pub use utoipa::OpenApi;
 
+use crate::api::apps::{
+    AppView, CreateAppRequest, DiffResponse, HistoryEntry, HistoryResponse, ListAppsResponse,
+    RollbackRequest, RollbackResponse, SyncAcceptedResponse, UpdateAppRequest,
+};
 use crate::api::errors::{ApiErrorBody, ApiErrorEnvelope, ErrorCode};
 use crate::api::health::HealthResponse;
 
@@ -35,10 +39,37 @@ use crate::api::health::HealthResponse;
         description = "REST API for the Synchrotron-CD GitOps controller.",
         license(name = "Apache-2.0"),
     ),
-    paths(crate::api::health::health_check),
-    components(schemas(HealthResponse, ApiErrorEnvelope, ApiErrorBody, ErrorCode)),
+    paths(
+        crate::api::health::health_check,
+        crate::api::apps::list_apps,
+        crate::api::apps::create_app,
+        crate::api::apps::get_app,
+        crate::api::apps::update_app,
+        crate::api::apps::delete_app,
+        crate::api::apps::sync_app,
+        crate::api::apps::diff_app,
+        crate::api::apps::rollback_app,
+        crate::api::apps::history_app,
+    ),
+    components(schemas(
+        HealthResponse,
+        ApiErrorEnvelope,
+        ApiErrorBody,
+        ErrorCode,
+        AppView,
+        CreateAppRequest,
+        UpdateAppRequest,
+        ListAppsResponse,
+        SyncAcceptedResponse,
+        RollbackRequest,
+        RollbackResponse,
+        DiffResponse,
+        HistoryEntry,
+        HistoryResponse,
+    )),
     tags(
         (name = "system", description = "Server-level health and metadata"),
+        (name = "apps", description = "Application CRUD and sync operations"),
     ),
 )]
 pub struct ApiDoc;

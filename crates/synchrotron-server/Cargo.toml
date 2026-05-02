@@ -23,6 +23,8 @@ axum = "0.8"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 bytes = "1"
 utoipa = { version = "5", features = ["axum_extras"] }
+chrono = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
