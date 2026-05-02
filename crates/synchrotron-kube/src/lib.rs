@@ -12,6 +12,7 @@ pub mod dry_run;
 mod error;
 pub mod exec;
 pub mod health;
+pub mod hook_runner;
 pub mod informer;
 pub mod oidc;
 pub mod prune;
@@ -28,6 +29,7 @@ pub use exec::{
     ExecPluginConfig, Runner,
 };
 pub use health::{HealthConfig, HealthMonitor, HealthState};
+pub use hook_runner::{run_hook, DeletePolicy, HookError, HookOutcome, HookRunOptions};
 pub use informer::{Informer, InformerConfig, InformerEvent};
 pub use oidc::{OidcConfig, OidcToken, OidcTokenCache, Refresher};
 pub use prune::{

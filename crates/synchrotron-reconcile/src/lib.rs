@@ -17,6 +17,7 @@
 
 pub mod auto_heal;
 pub mod debounce;
+pub mod hooks;
 pub mod kind_order;
 pub mod plan;
 pub mod reconcile;
@@ -26,6 +27,12 @@ pub mod worker_pool;
 
 pub use auto_heal::{AppLister, AutoHealConfig, AutoHealScheduler, AutoHealStats};
 pub use debounce::{DebounceConfig, DebounceStats, Debouncer};
+pub use hooks::{
+    hooks_for_phase, parse_hook_delete_policies, parse_hook_phases, split_hooks, Hook,
+    HookDeletePolicy, HookPhase, HookSplit, ARGOCD_HOOK_ANNOTATION,
+    ARGOCD_HOOK_DELETE_POLICY_ANNOTATION, SYNCHROTRON_HOOK_ANNOTATION,
+    SYNCHROTRON_HOOK_DELETE_POLICY_ANNOTATION,
+};
 pub use kind_order::{apply_priority, sort_within_wave, DEFAULT_PRIORITY};
 pub use plan::{plan, Plan, PlanEntry, PlannedAction, ResourceRef};
 pub use reconcile::{
