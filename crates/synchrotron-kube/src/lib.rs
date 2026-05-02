@@ -5,6 +5,7 @@
 //! ServiceAccount, OIDC refresh, exec credential plugins, health probes,
 //! informers, multi-cluster registry).
 
+pub mod apply;
 mod client;
 mod config;
 pub mod dry_run;
@@ -16,6 +17,7 @@ pub mod oidc;
 mod registry;
 pub mod scaler_discovery;
 
+pub use apply::{AppliedObject, ApplyError, ApplyOptions, KubeSsaApplier};
 pub use client::KubeClient;
 pub use config::{AuthSource, ClusterConfig, ClusterName};
 pub use dry_run::KubeDryRunApplier;
