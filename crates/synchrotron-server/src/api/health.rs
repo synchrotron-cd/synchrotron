@@ -17,6 +17,7 @@ use std::sync::{
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
 use serde::Serialize;
+use utoipa::ToSchema;
 
 /// Shared readiness signal. Cheap to clone; readers see a release
 /// store from whichever task completed startup.
@@ -40,12 +41,20 @@ impl ReadinessGate {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct HealthResponse {
     pub status: String,
     pub version: String,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/health",
+    tag = "system",
+    responses(
+        (status = 200, description = "Server is up", body = HealthResponse)
+    )
+)]
 pub async fn health_check() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".to_string(),
