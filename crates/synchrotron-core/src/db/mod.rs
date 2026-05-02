@@ -3,6 +3,7 @@ pub mod app_repo;
 pub mod cluster_repo;
 pub mod migrations;
 pub mod owned_resources_repo;
+pub mod repo_repo;
 pub mod sync_history_repo;
 pub mod sync_revisions_repo;
 
@@ -10,6 +11,7 @@ use std::path::Path;
 use tracing::info;
 
 pub use cluster_repo::{ClusterAuthSource, ClusterRegistration};
+pub use repo_repo::RepoRegistration;
 pub use sync_history_repo::{SyncRecord, SyncRecordStatus, SyncTrigger};
 pub use sync_revisions_repo::{SyncRevision, DEFAULT_RETENTION};
 

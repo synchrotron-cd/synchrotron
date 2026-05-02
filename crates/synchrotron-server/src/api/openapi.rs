@@ -28,6 +28,9 @@ use crate::api::clusters::{
 };
 use crate::api::errors::{ApiErrorBody, ApiErrorEnvelope, ErrorCode};
 use crate::api::health::HealthResponse;
+use crate::api::repos::{
+    CreateRepoRequest, ListReposResponse, RepoView, UpdateRepoRequest,
+};
 
 /// Code-driven OpenAPI document for the public REST API.
 ///
@@ -60,6 +63,11 @@ use crate::api::health::HealthResponse;
         crate::api::clusters::update_cluster,
         crate::api::clusters::delete_cluster,
         crate::api::clusters::check_cluster,
+        crate::api::repos::list_repos,
+        crate::api::repos::create_repo,
+        crate::api::repos::get_repo,
+        crate::api::repos::update_repo,
+        crate::api::repos::delete_repo,
     ),
     components(schemas(
         HealthResponse,
@@ -81,11 +89,16 @@ use crate::api::health::HealthResponse;
         UpdateClusterRequest,
         ListClustersResponse,
         ConnectivityCheckResponse,
+        RepoView,
+        CreateRepoRequest,
+        UpdateRepoRequest,
+        ListReposResponse,
     )),
     tags(
         (name = "system", description = "Server-level health and metadata"),
         (name = "apps", description = "Application CRUD and sync operations"),
         (name = "clusters", description = "Cluster registration CRUD and connectivity checks"),
+        (name = "repos", description = "Git repo registration CRUD"),
     ),
 )]
 pub struct ApiDoc;
