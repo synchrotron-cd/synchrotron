@@ -136,7 +136,12 @@ pub fn group_into_waves(plan: &Plan, desired: &[Manifest], live: &[Manifest]) ->
 
     let mut waves: Vec<WaveGroup> = by_wave
         .into_iter()
-        .map(|(wave, entries)| WaveGroup { wave, entries })
+        .map(|(wave, mut entries)| {
+            // Within-wave kind ordering: Namespace before RBAC before
+            // workloads, deletes in reverse. See [`crate::kind_order`].
+            crate::kind_order::sort_within_wave(&mut entries);
+            WaveGroup { wave, entries }
+        })
         .collect();
     waves.sort_by_key(|w| w.wave);
     WavePlan { waves }
@@ -352,6 +357,53 @@ mod tests {
         let wp = group_into_waves(&p, &[a, b, c], &[]);
         let waves: Vec<i32> = wp.waves.iter().map(|w| w.wave).collect();
         assert_eq!(waves, vec![-1, 0, 2]);
+    }
+
+    #[test]
+    fn group_into_waves_orders_kinds_within_a_wave() {
+        // All resources are in wave 0 — no annotation. The point of
+        // this test is to confirm that kind-priority ordering applies
+        // *within* a wave: Namespace → CRD → RBAC → workload → Ingress.
+        let ns = manifest_with_wave("Namespace", "app", "", None);
+        let crd = manifest_with_wave("CustomResourceDefinition", "things.example.com", "", None);
+        let sa = manifest_with_wave("ServiceAccount", "web", "app", None);
+        let role = manifest_with_wave("Role", "web", "app", None);
+        let dep = manifest_with_wave("Deployment", "web", "app", None);
+        let svc = manifest_with_wave("Service", "web", "app", None);
+        let ing = manifest_with_wave("Ingress", "web", "app", None);
+
+        // Feed in scrambled order so the assertion shows it's
+        // re-sorted, not preserved.
+        let desired = vec![
+            ing.clone(),
+            dep.clone(),
+            ns.clone(),
+            svc.clone(),
+            role.clone(),
+            sa.clone(),
+            crd.clone(),
+        ];
+        let p = plan(&desired, &[]);
+        let wp = group_into_waves(&p, &desired, &[]);
+
+        assert_eq!(wp.waves.len(), 1);
+        let kinds: Vec<&str> = wp.waves[0]
+            .entries
+            .iter()
+            .map(|e| e.resource.gvk.kind.as_str())
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                "Namespace",
+                "ServiceAccount",
+                "CustomResourceDefinition",
+                "Role",
+                "Service",
+                "Deployment",
+                "Ingress",
+            ]
+        );
     }
 
     #[test]

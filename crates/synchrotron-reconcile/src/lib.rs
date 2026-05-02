@@ -17,6 +17,7 @@
 
 pub mod auto_heal;
 pub mod debounce;
+pub mod kind_order;
 pub mod plan;
 pub mod reconcile;
 pub mod trigger;
@@ -25,6 +26,7 @@ pub mod worker_pool;
 
 pub use auto_heal::{AppLister, AutoHealConfig, AutoHealScheduler, AutoHealStats};
 pub use debounce::{DebounceConfig, DebounceStats, Debouncer};
+pub use kind_order::{apply_priority, sort_within_wave, DEFAULT_PRIORITY};
 pub use plan::{plan, Plan, PlanEntry, PlannedAction, ResourceRef};
 pub use reconcile::{
     DesiredSource, LiveSource, ReconcileError, ReconcileOutcome, Reconciler, SourceError,
