@@ -22,6 +22,10 @@ use crate::api::apps::{
     AppView, CreateAppRequest, DiffResponse, HistoryEntry, HistoryResponse, ListAppsResponse,
     RollbackRequest, RollbackResponse, SyncAcceptedResponse, UpdateAppRequest,
 };
+use crate::api::clusters::{
+    ClusterView, ConnectivityCheckResponse, CreateClusterRequest, ListClustersResponse,
+    UpdateClusterRequest,
+};
 use crate::api::errors::{ApiErrorBody, ApiErrorEnvelope, ErrorCode};
 use crate::api::health::HealthResponse;
 
@@ -50,6 +54,12 @@ use crate::api::health::HealthResponse;
         crate::api::apps::diff_app,
         crate::api::apps::rollback_app,
         crate::api::apps::history_app,
+        crate::api::clusters::list_clusters,
+        crate::api::clusters::create_cluster,
+        crate::api::clusters::get_cluster,
+        crate::api::clusters::update_cluster,
+        crate::api::clusters::delete_cluster,
+        crate::api::clusters::check_cluster,
     ),
     components(schemas(
         HealthResponse,
@@ -66,10 +76,16 @@ use crate::api::health::HealthResponse;
         DiffResponse,
         HistoryEntry,
         HistoryResponse,
+        ClusterView,
+        CreateClusterRequest,
+        UpdateClusterRequest,
+        ListClustersResponse,
+        ConnectivityCheckResponse,
     )),
     tags(
         (name = "system", description = "Server-level health and metadata"),
         (name = "apps", description = "Application CRUD and sync operations"),
+        (name = "clusters", description = "Cluster registration CRUD and connectivity checks"),
     ),
 )]
 pub struct ApiDoc;

@@ -25,10 +25,11 @@ const SCHEMA_V1: &str = include_str!("schema.sql");
 const SCHEMA_V2: &str = include_str!("schema_v2.sql");
 const SCHEMA_V3: &str = include_str!("schema_v3.sql");
 const SCHEMA_V4: &str = include_str!("schema_v4.sql");
+const SCHEMA_V5: &str = include_str!("schema_v5.sql");
 
 /// Highest schema version this binary knows about. The DB must be
 /// at exactly this version after [`run_migrations`] returns.
-pub const LATEST_VERSION: i64 = 4;
+pub const LATEST_VERSION: i64 = 5;
 
 /// Run all pending migrations. Safe to call against a fresh DB or
 /// one already at the latest version.
@@ -50,6 +51,10 @@ pub fn run_migrations(conn: &Connection) -> rusqlite::Result<()> {
     if current < 4 {
         info!("applying migration v4: app sync history");
         apply_migration(conn, SCHEMA_V4)?;
+    }
+    if current < 5 {
+        info!("applying migration v5: cluster registrations");
+        apply_migration(conn, SCHEMA_V5)?;
     }
 
     Ok(())

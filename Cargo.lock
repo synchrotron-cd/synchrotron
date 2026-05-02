@@ -2864,6 +2864,7 @@ dependencies = [
  "sha2",
  "synchrotron-core",
  "synchrotron-git",
+ "synchrotron-kube",
  "synchrotron-types",
  "tempfile",
  "thiserror 2.0.18",
