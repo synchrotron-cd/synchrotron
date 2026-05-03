@@ -41,6 +41,26 @@ Synchrotron-CD is a lightweight, fast, and scalable GitOps continuous deployment
 - **Plugin extensibility**: Support multiple templating engines and deployment strategies without core modifications
 - **Smart drift detection**: Don't fight Kubernetes controllers; cooperate with them
 
+## Crate Layout
+
+The implementation is split across 13 workspace crates, each with a focused responsibility:
+
+| Crate | Role |
+|---|---|
+| `synchrotron-types` | Shared domain types (`AppName`, `ClusterName`, `Application`, sync policy, health codes) |
+| `synchrotron-core` | Cross-cutting infrastructure: SQLite (`db/`), event bus, metrics registry, telemetry, coalescing |
+| `synchrotron-git` | Git fetch orchestrator, pollers, credential plugins, inbound webhook parsing + HMAC verify |
+| `synchrotron-kube` | Kubernetes cluster connector, auth, informers, server-side apply |
+| `synchrotron-plugins` | Plugin runtime: local subprocess (JSON-RPC over stdio) + sidecar gRPC, two-tier app-manifest cache (in-memory LRU + SQLite warm-up) |
+| `synchrotron-helm-plugin` | Built-in Helm renderer, ships as its own binary |
+| `synchrotron-kustomize-plugin` | Built-in Kustomize renderer with remote-base allowlist, ships as its own binary |
+| `synchrotron-diff` | Structural differ: pipeline, listmap-aware compare, managed-fields ownership, auto-ignore |
+| `synchrotron-reconcile` | Planner, worker pool, debounce, sync waves, hooks, kind ordering, auto-heal, event trigger |
+| `synchrotron-health` | Resource health engine: built-in rules, condition convention, CEL overrides, aggregate status |
+| `synchrotron-notifier` | Outbound webhook delivery with bounded backoff and optional HMAC-SHA256 signing |
+| `synchrotron-server` | REST + SSE API surface (axum), OpenAPI document, Prometheus `/metrics`, health/readiness probes, inbound webhook routes |
+| `synchrotron-cli` | Thin HTTP client (`synchrotron`) wrapping the REST API |
+
 ## System Architecture
 
 ```
@@ -249,29 +269,30 @@ Depends on: SQLite storage.
 
 ### 4. Plugin System (Local + Sidecar)
 
-Depends on: Git sync (provides source material).
+Depends on: Git sync (provides source material). Implemented in `synchrotron-plugins`; built-in renderers ship as their own crates.
 
-- **Local plugins**: Subprocess with stdin/stdout JSON-RPC. Fast, simple. Ship built-in plugins for Helm and Kustomize.
+- **Local plugins**: Subprocess with stdin/stdout JSON-RPC. Fast, simple. Built-in Helm (`synchrotron-helm-plugin`) and Kustomize (`synchrotron-kustomize-plugin`) ship as separate binary crates so they can be deployed or omitted independently.
 - **Sidecar plugins**: gRPC to container sidecars for heavy/custom tooling
 - **Plugin interface**: `render(source_path, parameters) -> Vec<Manifest>`
 - **Discovery**: Plugins declared in Application spec, loaded on demand
-- **Caching**: Plugin output cached by input hash (source content + parameters)
+- **Caching**: Plugin output cached by input hash (source content + parameters); see Manifest Cache below
+- **Kustomize remote bases**: Allowlist-gated to avoid arbitrary upstream fetches
 - **Built-in**: Raw manifests (directory of YAML files) handled natively, no plugin needed
 
 ### 5. Manifest Cache (LRU)
 
-Depends on: Git sync, plugin system (producers of manifests).
+Depends on: Git sync, plugin system (producers of manifests). Lives in `synchrotron-plugins` (`app_cache.rs`, `cache.rs`).
 
 - **Key**: `(app_name, git_commit_hash, plugin_params_hash)`
 - **Value**: Parsed, rendered Kubernetes manifests (structured, not raw YAML)
+- **Two-tier**: In-memory LRU for hot reads; SQLite-backed persistence for cold-start warm-up. The persisted tier survives process restarts so the first reconcile after boot doesn't pay full render cost.
 - **Eviction**: LRU with configurable max memory (default: 350MB, staying under 512MB total)
 - **Invalidation**: On new git commit for an app, old entry evicted
-- **Warm-up**: On startup, populate cache for recently-active apps from SQLite
 - **Metrics**: Hit/miss rate, eviction count, memory usage
 
 ### 6. Smart Diff Engine
 
-Depends on: Cluster connector (for server-side dry-run and live state).
+Depends on: Cluster connector (for server-side dry-run and live state). Implemented in `synchrotron-diff` (`pipeline.rs`, `compare.rs`, `listmap.rs`, `auto_ignore.rs`, `managed_fields.rs`, `ownership.rs`, `applier.rs`, `ignore.rs`, `path.rs`).
 
 This is a critical differentiator from Argo CD. See D4 below for full design.
 
@@ -284,7 +305,7 @@ This is a critical differentiator from Argo CD. See D4 below for full design.
 
 ### 7. Reconciliation Engine
 
-Depends on: Git sync, manifest cache, smart differ, cluster connector.
+Depends on: Git sync, manifest cache, smart differ, cluster connector. Implemented in `synchrotron-reconcile`: `plan.rs` (pure planner), `reconcile.rs` (per-app pass), `worker_pool.rs` (bounded concurrency), `trigger.rs` (bus subscriber), `debounce.rs`, `wave.rs`, `hooks.rs`, `kind_order.rs`, `auto_heal.rs`.
 
 - **Loop**: Event-driven (webhook/poll trigger) + periodic auto-heal (default 3 min)
 - **Process per app**:
@@ -310,7 +331,7 @@ Depends on: Reconciliation engine, cluster connector.
 
 ### 9. Health Assessment Engine
 
-Depends on: Cluster connector.
+Depends on: Cluster connector. Implemented in `synchrotron-health` (`cel.rs` evaluator + `aggregate.rs` worst-of roll-up).
 
 Health checking is built into the core as a status-condition evaluator, not a separate scripting runtime.
 
@@ -325,54 +346,59 @@ Health checking is built into the core as a status-condition evaluator, not a se
 
 Depends on: Git sync, reconciliation engine.
 
-- **Inbound webhooks**: GitHub, GitLab, Bitbucket push events trigger immediate git fetch + reconciliation
-- **Webhook validation**: HMAC signature verification per provider
-- **Event bus**: Internal async channel for decoupling event producers from consumers
-- **De-duplication**: Coalesce multiple webhooks for same repo within a short window
-- **Outbound notifications**: Optional webhook/callback on sync success/failure (for Slack, PagerDuty, etc.)
-- **Not required**: System works perfectly fine with polling only; webhooks are an acceleration layer
+- **Inbound webhooks**: GitHub, GitLab, Bitbucket push events trigger immediate git fetch + reconciliation. Routes mounted by `synchrotron-server`; parse + HMAC verify live in `synchrotron-git/src/webhooks.rs` so the cryptographic path is testable without axum.
+- **Webhook validation**: HMAC signature verification per provider; unconfigured provider routes fail closed (503) so an unsigned webhook is never accepted.
+- **Event bus**: In-process `tokio::sync::broadcast`-backed bus in `synchrotron-core/src/events.rs`. Many-producer / many-consumer; lagged consumers are advanced (at-most-once under pressure) so a slow subscriber never stalls producers.
+- **De-duplication / coalescing**: Implemented in `synchrotron-core/src/coalesce.rs`; rapid-fire events collapse into a single in-flight reconcile per app.
+- **Outbound notifications**: `synchrotron-notifier` crate. Subscribes to `SyncOutcome` events, POSTs a versioned JSON envelope to a per-app URL with bounded exponential backoff on 5xx, drop-on-4xx, and optional HMAC-SHA256 signing in `X-Synchrotron-Signature: sha256=<hex>`.
+- **Not required**: System works perfectly fine with polling only; webhooks are an acceleration layer.
 
 ### 11. CLI & REST API
 
 Depends on: All core components (this is the user-facing layer).
 
-- **REST API**: JSON over HTTP. Simple, curl-friendly, easy to understand and integrate. This is an admin/operator interface — clarity and debuggability matter far more than wire efficiency.
-  - `GET /api/v1/applications` - list apps (filterable by cluster, namespace, health, sync status)
-  - `GET /api/v1/applications/{name}` - app details, sync status, health, managed resources
-  - `POST /api/v1/applications/{name}/sync` - trigger manual sync
-  - `GET /api/v1/applications/{name}/diff` - smart diff output (actionable + ignored drift)
-  - `POST /api/v1/applications/{name}/rollback` - rollback to previous revision
-  - `GET /api/v1/applications/{name}/history` - sync history
-  - `GET /api/v1/clusters` / `POST` / `DELETE` - manage clusters
-  - `GET /api/v1/repos` / `POST` / `DELETE` - manage git repositories
-  - `GET /api/v1/health` - system health
-  - **SSE streaming**: `GET /api/v1/applications/{name}/watch` for live status updates (Server-Sent Events — works through proxies, no WebSocket complexity)
-- **CLI** (`synchrotron`): Thin HTTP client wrapping the REST API
-  - `synchrotron app list` - list applications
-  - `synchrotron app get <name>` - show app details, sync status, health
-  - `synchrotron app sync <name>` - trigger manual sync
-  - `synchrotron app diff <name>` - show what would change. Output separates **actionable drift** (fields Synchrotron manages that have diverged) from **ignored drift** (fields auto-ignored or user-ignored, shown as informational with reason annotations). Full visibility without noise.
-  - `synchrotron app rollback <name>` - rollback to previous revision
-  - `synchrotron cluster list/add/remove` - manage clusters
-  - `synchrotron repo list/add/remove` - manage git repositories
+- **REST API**: JSON over HTTP. Simple, curl-friendly, easy to understand and integrate. This is an admin/operator interface — clarity and debuggability matter far more than wire efficiency. Routes use `apps`/`clusters`/`repos` (short, kubectl-style) rather than `applications`.
+  - `GET /api/v1/apps` - list apps (filterable by cluster, namespace, health, sync status)
+  - `POST /api/v1/apps` / `GET|PUT|DELETE /api/v1/apps/{name}` - app CRUD
+  - `POST /api/v1/apps/{name}/sync` - trigger manual sync
+  - `POST /api/v1/apps/{name}/diff` - smart diff output (actionable + ignored drift)
+  - `POST /api/v1/apps/{name}/rollback` - rollback to a recorded revision
+  - `GET /api/v1/apps/{name}/history` - sync history
+  - `GET /api/v1/clusters` / `POST` / `GET|PUT|DELETE /api/v1/clusters/{name}` / `POST /api/v1/clusters/{name}/check` - cluster CRUD + connectivity probe
+  - `GET /api/v1/repos` / `POST` / `GET|PUT|DELETE /api/v1/repos/{id}` - git-repo registration CRUD
+  - `POST /api/v1/webhooks/{github,gitlab,bitbucket}` - inbound webhook ingestion
+  - `GET /api/v1/health` - system health envelope
+  - `GET /healthz`, `GET /readyz` - liveness / readiness probes (separate router via `probes_router`, ready-gated by `ReadinessGate`)
+  - `GET /metrics` - Prometheus / OpenMetrics scrape endpoint
+  - `GET /openapi.json` - code-generated OpenAPI 3.1 document (utoipa)
+  - **SSE streaming**: `GET /api/v1/apps/{name}/watch` for live status updates with `Last-Event-ID` backlog replay. Works through proxies, no WebSocket complexity.
+- **CLI** (`synchrotron`): Thin HTTP client wrapping the REST API. Top-level `--server`, `--token`, `--output {table|json|yaml}`.
+  - `synchrotron app list|get|create|update|delete` - app CRUD
+  - `synchrotron sync <name>` - trigger manual sync
+  - `synchrotron diff <name>` - show what would change. Output separates **actionable drift** (fields Synchrotron manages that have diverged) from **ignored drift** (fields auto-ignored or user-ignored, shown as informational with reason annotations). Full visibility without noise.
+  - `synchrotron rollback <name>` - rollback to a previous revision
+  - `synchrotron watch <name>` - stream live SSE events
+  - `synchrotron cluster list|get|create|update|delete|check` - manage clusters
+  - `synchrotron repo list|get|create|update|delete` - manage git repositories
+  - `synchrotron health` - server health
 - **Web UI**: NOT in initial scope. REST API makes future UI straightforward.
 - **kubectl plugin**: Optional `kubectl synchrotron` alias
 
 ## Design Areas
 
 ### Core Components
-- [ ] SQLite State Storage (foundation)
-- [ ] Cluster Connector & Auth (foundation)
-- [ ] Git Synchronization Engine
-- [ ] Plugin System - Local & Sidecar
-- [ ] Manifest Cache (LRU)
-- [ ] Smart Diff Engine
-- [ ] Reconciliation Engine
-- [ ] Deployment Orchestrator
-- [ ] Health Assessment Engine
-- [ ] Webhook & Event System
-- [ ] CLI & REST API
-- [ ] Application Model & CRDs
+- [x] SQLite State Storage (`synchrotron-core/src/db`)
+- [x] Cluster Connector & Auth (`synchrotron-kube`)
+- [x] Git Synchronization Engine (`synchrotron-git`)
+- [x] Plugin System - Local & Sidecar (`synchrotron-plugins`, `synchrotron-helm-plugin`, `synchrotron-kustomize-plugin`)
+- [x] Manifest Cache (in-memory LRU + SQLite warm-up)
+- [x] Smart Diff Engine (`synchrotron-diff`)
+- [x] Reconciliation Engine (`synchrotron-reconcile`)
+- [x] Deployment Orchestrator (server-side apply, waves, hooks, rollback)
+- [x] Health Assessment Engine (`synchrotron-health`)
+- [x] Webhook & Event System (inbound + `synchrotron-notifier` outbound)
+- [x] CLI & REST API (`synchrotron-server`, `synchrotron-cli`)
+- [ ] Application Model & CRDs (REST surface lands first; CRD controller is follow-up)
 
 ### Technology Decisions
 - [x] Language: Rust (zero-cost abstractions, memory efficiency, minimal binary size)
@@ -407,14 +433,8 @@ Depends on: All core components (this is the user-facing layer).
 **Rationale**:
 - **Memory Efficiency**: Must stay under 512MB RAM for deployments with thousands of apps. Rust's zero-cost abstractions and lack of garbage collection provide predictable memory usage.
 - **Sync Performance**: Rust's async/await with tokio provides excellent concurrency with tight memory bounds.
-- **Binary Size**: Pure-Rust stack keeps binary small (~5-8MB static). SQLite adds minimal overhead compared to RocksDB's C++ dependency.
-- **SQLite Choice**: WAL mode enables concurrent reads with single writer. Perfect for reconciliation loop (single writer) + API/CLI queries (concurrent readers). Well-understood, battle-tested, zero operational overhead. `rusqlite` with bundled SQLite keeps the build simple.
-
-**Why not RocksDB**:
-- Adds ~10-15MB binary size from C++ linkage
-- Operational complexity (compaction tuning, write amplification)
-- Overkill for our write patterns (periodic syncs, not continuous streams)
-- SQLite is more than sufficient for thousands of apps with proper schema
+- **Binary Size**: Pure-Rust stack keeps binary small (~5-8MB static).
+- **SQLite Choice**: WAL mode enables concurrent reads with single writer. Perfect for reconciliation loop (single writer) + API/CLI queries (concurrent readers). Well-understood, battle-tested, zero operational overhead. `rusqlite` with bundled SQLite keeps the build simple. Schema is versioned (`schema.sql` + `schema_v2..v6.sql`) and applied via `migrations.rs` on startup.
 
 **Trade-offs**:
 - SQLite single-writer means sync operations serialize writes (acceptable given our workload)
@@ -658,5 +678,5 @@ healthChecks:
 
 ---
 
-**Last Updated**: 2026-03-01
-**Status**: In Progress
+**Last Updated**: 2026-05-03
+**Status**: Core architecture (h48) complete; performance & scale optimization (y0v) outstanding.
