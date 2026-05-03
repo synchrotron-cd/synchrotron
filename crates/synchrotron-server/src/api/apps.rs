@@ -39,14 +39,20 @@ use synchrotron_types::{
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use crate::api::diff_engine::{DiffEngine, DiffEngineError, DiffEntry};
 use crate::api::errors::ApiError;
 
 /// Shared state for the apps API. Cheap to clone — the inner `Arc`s
-/// share a single DB handle and event bus across handlers.
+/// share a single DB handle, event bus, and (optional) diff engine
+/// across handlers.
 #[derive(Clone)]
 pub struct AppsState {
     pub db: Arc<Mutex<Database>>,
     pub bus: EventBus,
+    /// Engine that turns an app reference into a structured diff. When
+    /// `None` (e.g. server booted without a reconciler), the diff
+    /// endpoint returns the historical empty-with-note shape.
+    pub diff_engine: Option<Arc<dyn DiffEngine>>,
 }
 
 impl AppsState {
@@ -54,7 +60,15 @@ impl AppsState {
         Self {
             db: Arc::new(Mutex::new(db)),
             bus,
+            diff_engine: None,
         }
+    }
+
+    /// Plug a diff engine into this state. Required for
+    /// `POST /apps/{name}/diff` to return real entries.
+    pub fn with_diff_engine(mut self, engine: Arc<dyn DiffEngine>) -> Self {
+        self.diff_engine = Some(engine);
+        self
     }
 }
 
@@ -159,10 +173,9 @@ pub struct RollbackResponse {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct DiffResponse {
     pub app: String,
-    /// Free-form diff payload. Empty until the desired-state cache
-    /// is wired up (see follow-up issue); preserves API shape for
-    /// clients that already consume this endpoint.
-    pub entries: Vec<serde_json::Value>,
+    /// Per-resource diff entries. Empty when no engine is configured
+    /// (server has no reconciler attached) — `note` then explains.
+    pub entries: Vec<DiffEntry>,
     pub note: Option<String>,
 }
 
@@ -408,20 +421,39 @@ pub async fn diff_app(
     State(state): State<AppsState>,
     Path(name): Path<String>,
 ) -> Result<Json<DiffResponse>, ApiError> {
-    let _ = load_app(&state, &name)?;
-    // The desired-state cache and live informer required to render a
-    // real diff aren't reachable from this slice yet — preserve the
-    // contract with an empty payload + explanatory note. A follow-up
-    // wires the planner output here.
+    let app = load_app(&state, &name)?;
+    let Some(engine) = state.diff_engine.clone() else {
+        return Ok(Json(DiffResponse {
+            app: name,
+            entries: Vec::new(),
+            note: Some(
+                "diff engine not configured on this server; \
+                 entries will populate once a reconciler is attached."
+                    .into(),
+            ),
+        }));
+    };
+    let entries = engine
+        .compute(&app.name, &app.destination.cluster)
+        .map_err(map_engine_err)?;
     Ok(Json(DiffResponse {
         app: name,
-        entries: Vec::new(),
-        note: Some(
-            "diff engine not yet wired; endpoint reserved and stable. \
-             entries will populate once the desired-state cache is reachable."
-                .into(),
-        ),
+        entries,
+        note: None,
     }))
+}
+
+fn map_engine_err(e: DiffEngineError) -> ApiError {
+    use crate::api::errors::ErrorCode;
+    match e {
+        DiffEngineError::AppNotInCache(_) => ApiError::not_found(e.to_string()),
+        DiffEngineError::ClusterNotAvailable(_) => {
+            ApiError::new(ErrorCode::Unavailable, e.to_string())
+        }
+        DiffEngineError::DesiredFetch(_) | DiffEngineError::LiveFetch(_) => {
+            ApiError::new(ErrorCode::Unavailable, e.to_string())
+        }
+    }
 }
 
 #[utoipa::path(

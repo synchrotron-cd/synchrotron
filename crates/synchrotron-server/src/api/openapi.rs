@@ -22,6 +22,7 @@ use crate::api::apps::{
     AppView, CreateAppRequest, DiffResponse, HistoryEntry, HistoryResponse, ListAppsResponse,
     RollbackRequest, RollbackResponse, SyncAcceptedResponse, UpdateAppRequest,
 };
+use crate::api::diff_engine::{DiffEntry, FieldChange};
 use crate::api::clusters::{
     ClusterView, ConnectivityCheckResponse, CreateClusterRequest, ListClustersResponse,
     UpdateClusterRequest,
@@ -85,6 +86,8 @@ use crate::api::repos::{
         RollbackRequest,
         RollbackResponse,
         DiffResponse,
+        DiffEntry,
+        FieldChange,
         HistoryEntry,
         HistoryResponse,
         ClusterView,

@@ -1,5 +1,6 @@
 pub mod apps;
 pub mod clusters;
+pub mod diff_engine;
 pub mod errors;
 pub mod health;
 pub mod metrics;
@@ -16,6 +17,7 @@ use tower_http::trace::TraceLayer;
 
 pub use apps::AppsState;
 pub use clusters::ClustersState;
+pub use diff_engine::{DiffEngine, DiffEngineError, DiffEntry, FieldChange, PlannerDiffEngine};
 pub use repos::ReposState;
 pub use errors::{ApiError, ApiErrorBody, ApiErrorEnvelope, ErrorCode};
 pub use health::{probes_router, ComponentState, HealthRegistry, ReadinessGate};

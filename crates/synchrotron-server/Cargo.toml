@@ -12,6 +12,9 @@ synchrotron-types.workspace = true
 synchrotron-core.workspace = true
 synchrotron-git = { path = "../synchrotron-git" }
 synchrotron-kube = { path = "../synchrotron-kube" }
+synchrotron-plugins.workspace = true
+synchrotron-diff.workspace = true
+synchrotron-reconcile = { path = "../synchrotron-reconcile" }
 serde.workspace = true
 serde_json.workspace = true
 serde_yaml_ng = "0.10"
