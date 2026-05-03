@@ -17,7 +17,9 @@ chrono.workspace = true
 kube = { version = "0.95", default-features = false, features = ["client", "rustls-tls", "runtime"] }
 k8s-openapi = { version = "0.23", default-features = false, features = ["latest"] }
 futures = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 
 [dev-dependencies]
 tempfile = "3"
-tokio = { workspace = true, features = ["test-util"] }
+tokio = { workspace = true, features = ["test-util", "net"] }
+axum = "0.8"

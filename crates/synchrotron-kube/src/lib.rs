@@ -15,6 +15,7 @@ pub mod health;
 pub mod hook_runner;
 pub mod informer;
 pub mod oidc;
+pub mod oidc_http;
 pub mod prune;
 mod registry;
 pub mod scaler_discovery;

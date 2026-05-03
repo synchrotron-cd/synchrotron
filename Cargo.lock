@@ -2903,10 +2903,12 @@ dependencies = [
 name = "synchrotron-kube"
 version = "0.1.0"
 dependencies = [
+ "axum 0.8.8",
  "chrono",
  "futures",
  "k8s-openapi",
  "kube",
+ "reqwest",
  "serde",
  "serde_json",
  "serde_yaml_ng",
