@@ -12,6 +12,7 @@ mod client;
 mod credentials;
 mod error;
 pub mod github_app;
+pub mod github_app_http;
 pub mod known_hosts;
 mod orchestrator;
 pub mod poller;

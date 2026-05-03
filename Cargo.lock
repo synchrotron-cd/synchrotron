@@ -2851,12 +2851,15 @@ dependencies = [
 name = "synchrotron-git"
 version = "0.1.0"
 dependencies = [
+ "axum 0.8.8",
  "base64 0.22.1",
+ "chrono",
  "git2",
  "hex",
  "hmac",
  "jsonwebtoken",
  "rand 0.8.6",
+ "reqwest",
  "serde",
  "serde_json",
  "sha1",
