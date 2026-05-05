@@ -49,6 +49,9 @@ uuid = { version = "1", features = ["v4", "serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
+# Benchmarking
+criterion = { version = "0.5", default-features = false, features = ["plotters", "cargo_bench_support"] }
+
 # gRPC
 tonic = "0.12"
 prost = "0.13"

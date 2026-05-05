@@ -20,3 +20,8 @@ tokio = { workspace = true }
 tempfile = "3"
 rusqlite = { version = "0.34", features = ["bundled"] }
 kube = { version = "0.95", default-features = false, features = ["client", "rustls-tls", "runtime"] }
+criterion = { workspace = true }
+
+[[bench]]
+name = "plan"
+harness = false

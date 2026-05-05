@@ -25,7 +25,12 @@ tonic-build = { workspace = true }
 tempfile = "3"
 tokio = { workspace = true }
 tokio-stream = { version = "0.1", features = ["net"] }
+criterion = { workspace = true }
 
 [[bin]]
 name = "synchrotron-stub-plugin"
 path = "src/bin/stub_plugin.rs"
+
+[[bench]]
+name = "cache"
+harness = false
