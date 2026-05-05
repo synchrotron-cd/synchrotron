@@ -101,7 +101,14 @@ impl GitClient {
         );
 
         let credentials = repo.credentials.clone();
-        let callbacks = build_callbacks(credentials, Arc::clone(&self.host_verifier));
+        let port_override = ssh_port_from_url(&repo.url.0);
+        let last_verifier_err: Arc<Mutex<Option<GitError>>> = Arc::new(Mutex::new(None));
+        let callbacks = build_callbacks(
+            credentials,
+            Arc::clone(&self.host_verifier),
+            port_override,
+            Arc::clone(&last_verifier_err),
+        );
         let mut fetch_opts = FetchOptions::new();
         fetch_opts.remote_callbacks(callbacks);
         if let Some(depth) = repo.depth {
@@ -112,7 +119,9 @@ impl GitClient {
         builder.bare(true);
         builder.fetch_options(fetch_opts);
         builder.branch(&repo.branch);
-        builder.clone(&repo.url.0, &bare_path)?;
+        builder
+            .clone(&repo.url.0, &bare_path)
+            .map_err(|e| prefer_verifier_error(&last_verifier_err, e))?;
 
         Ok(())
     }
@@ -129,7 +138,14 @@ impl GitClient {
         let previous_head = read_branch_head(&bare, &repo.branch).ok();
 
         let credentials = repo.credentials.clone();
-        let callbacks = build_callbacks(credentials, Arc::clone(&self.host_verifier));
+        let port_override = ssh_port_from_url(&repo.url.0);
+        let last_verifier_err: Arc<Mutex<Option<GitError>>> = Arc::new(Mutex::new(None));
+        let callbacks = build_callbacks(
+            credentials,
+            Arc::clone(&self.host_verifier),
+            port_override,
+            Arc::clone(&last_verifier_err),
+        );
         let mut fetch_opts = FetchOptions::new();
         fetch_opts.remote_callbacks(callbacks);
         if let Some(depth) = repo.depth {
@@ -138,7 +154,9 @@ impl GitClient {
 
         let refspec = format!("+refs/heads/{0}:refs/heads/{0}", repo.branch);
         let mut remote = bare.find_remote("origin")?;
-        remote.fetch(&[refspec.as_str()], Some(&mut fetch_opts), None)?;
+        remote
+            .fetch(&[refspec.as_str()], Some(&mut fetch_opts), None)
+            .map_err(|e| prefer_verifier_error(&last_verifier_err, e))?;
 
         let current_head = read_branch_head(&bare, &repo.branch)?;
         let changed = previous_head.as_ref() != Some(&current_head);
@@ -189,15 +207,23 @@ impl GitClient {
     }
 }
 
+// `port_override` carries the port parsed from the repo URL.
+// Authoritative for non-default ports because libgit2 strips the port
+// before invoking `certificate_check`, and the verifier needs the real
+// port to match `[host]:port` known_hosts entries (bead a2d).
 fn build_callbacks(
     credentials: Credentials,
     host_verifier: Arc<Mutex<HostVerifier>>,
+    port_override: Option<u16>,
+    last_verifier_err: Arc<Mutex<Option<GitError>>>,
 ) -> RemoteCallbacks<'static> {
     let mut callbacks = RemoteCallbacks::new();
     callbacks.credentials(move |_url, username_from_url, allowed| {
         select_credential(&credentials, username_from_url, allowed)
     });
-    callbacks.certificate_check(move |cert, host| verify_certificate(cert, host, &host_verifier));
+    callbacks.certificate_check(move |cert, host| {
+        verify_certificate(cert, host, &host_verifier, port_override, &last_verifier_err)
+    });
     callbacks
 }
 
@@ -205,12 +231,14 @@ fn build_callbacks(
 /// is `Cert::Hostkey`; for HTTPS it's `Cert::X509` (which we hand
 /// back to libgit2's default trust store via `CertificatePassthrough`).
 ///
-/// The `host` argument from libgit2 is `host[:port]`; we split it
-/// before passing to the verifier.
+/// libgit2 generally hands us only the bare hostname for SSH, so we
+/// prefer the port parsed from the repo URL when available.
 fn verify_certificate(
     cert: &Cert<'_>,
     host: &str,
     host_verifier: &Arc<Mutex<HostVerifier>>,
+    port_override: Option<u16>,
+    last_verifier_err: &Arc<Mutex<Option<GitError>>>,
 ) -> std::result::Result<CertificateCheckStatus, git2::Error> {
     let hostkey = match cert.as_hostkey() {
         Some(hk) => hk,
@@ -234,19 +262,62 @@ fn verify_certificate(
         }
     };
 
-    let (hostname, port) = split_host_port(host);
+    let (hostname, parsed_port) = split_host_port(host);
+    let port = port_override.unwrap_or(parsed_port);
     let mut verifier = host_verifier
         .lock()
         .map_err(|_| git2::Error::from_str("host verifier mutex poisoned"))?;
     match verifier.check(hostname, port, key_type, key_bytes) {
         Ok(()) => Ok(CertificateCheckStatus::CertificateOk),
         Err(e) => {
-            warn!(host = hostname, error = %e, "SSH host key verification failed");
+            warn!(host = hostname, port, error = %e, "SSH host key verification failed");
+            // Stash the structured error so the fetch caller can see
+            // it — libgit2 substitutes a generic message when
+            // certificate_check returns Err (see bead i29).
+            if let Ok(mut slot) = last_verifier_err.lock() {
+                *slot = Some(e);
+            }
             Err(git2::Error::from_str(&format!(
-                "SSH host key verification failed for {hostname}: {e}"
+                "SSH host key verification failed for {hostname}"
             )))
         }
     }
+}
+
+/// Parse the port from `ssh://[user@]host[:port]/path`. Returns
+/// `None` for non-ssh URLs or when no explicit port is present (in
+/// which case the verifier falls back to whatever `split_host_port`
+/// produces from libgit2's host string).
+fn ssh_port_from_url(url: &str) -> Option<u16> {
+    let rest = url.strip_prefix("ssh://")?;
+    let authority = rest.split('/').next()?;
+    let host_port = authority.rsplit_once('@').map(|(_, h)| h).unwrap_or(authority);
+    // IPv6 literal: `[::1]:port`
+    if let Some(rest) = host_port.strip_prefix('[') {
+        let (_, p) = rest.split_once("]:")?;
+        return p.parse().ok();
+    }
+    let (_, p) = host_port.rsplit_once(':')?;
+    p.parse().ok()
+}
+
+/// If the libgit2 error is the generic SSH-failure flavour and the
+/// `certificate_check` callback stashed a structured verifier error,
+/// surface the verifier error instead — operators get
+/// `UnknownHostKey` / `HostKeyMismatch` with host + key_type rather
+/// than libgit2's "invalid or unknown remote ssh hostkey".
+fn prefer_verifier_error(
+    last_verifier_err: &Arc<Mutex<Option<GitError>>>,
+    git_err: git2::Error,
+) -> GitError {
+    if git_err.class() == git2::ErrorClass::Ssh {
+        if let Ok(mut slot) = last_verifier_err.lock() {
+            if let Some(e) = slot.take() {
+                return e;
+            }
+        }
+    }
+    GitError::Git(git_err)
 }
 
 fn hostkey_type_str(t: git2::cert::SshHostKeyType) -> &'static str {
@@ -396,4 +467,39 @@ fn apply_filemode(path: &Path, mode: i32) -> Result<()> {
 #[cfg(not(unix))]
 fn apply_filemode(_path: &Path, _mode: i32) -> Result<()> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ssh_port_from_url_parses_explicit_port() {
+        assert_eq!(ssh_port_from_url("ssh://git@host:2222/repo.git"), Some(2222));
+        assert_eq!(ssh_port_from_url("ssh://host:22/r"), Some(22));
+        assert_eq!(ssh_port_from_url("ssh://user@127.0.0.1:65535/p"), Some(65535));
+    }
+
+    #[test]
+    fn ssh_port_from_url_handles_ipv6() {
+        assert_eq!(ssh_port_from_url("ssh://git@[::1]:2222/r"), Some(2222));
+    }
+
+    #[test]
+    fn ssh_port_from_url_returns_none_when_absent() {
+        assert_eq!(ssh_port_from_url("ssh://git@host/repo.git"), None);
+        assert_eq!(ssh_port_from_url("ssh://host/r"), None);
+    }
+
+    #[test]
+    fn ssh_port_from_url_returns_none_for_non_ssh_schemes() {
+        assert_eq!(ssh_port_from_url("https://host:8443/r.git"), None);
+        assert_eq!(ssh_port_from_url("git@host:user/repo.git"), None);
+    }
+
+    #[test]
+    fn ssh_port_from_url_rejects_bad_port() {
+        assert_eq!(ssh_port_from_url("ssh://host:notaport/r"), None);
+        assert_eq!(ssh_port_from_url("ssh://host:99999/r"), None);
+    }
 }

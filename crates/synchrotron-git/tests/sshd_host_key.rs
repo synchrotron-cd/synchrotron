@@ -25,7 +25,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use synchrotron_git::{
-    Credentials, GitClient, HostKeyMode, HostVerifier, KnownHostsFile, Repo, Workspace,
+    Credentials, GitClient, GitError, HostKeyMode, HostVerifier, KnownHostsFile, Repo, Workspace,
 };
 use synchrotron_types::RepoUrl;
 
@@ -156,11 +156,11 @@ impl SshdFixture {
         }
     }
 
-    /// libgit2's `certificate_check` callback receives only the bare
-    /// hostname (no port), so the verifier always queries / appends the
-    /// port-22 form even when the server is on a non-default port.
+    /// known_hosts form: `[host]:port` for non-22 ports. The fix in
+    /// bead a2d threads the URL-derived port into the verifier, so
+    /// non-default-port servers now record / match the bracketed form.
     fn host_form(&self) -> String {
-        "127.0.0.1".to_string()
+        format!("[127.0.0.1]:{}", self.port)
     }
 }
 
@@ -280,7 +280,10 @@ fn strict_with_unknown_host_rejects() {
     let repo = make_repo(fx.ssh_url(), fx.credentials());
 
     let err = client.fetch(&repo).expect_err("fetch must fail");
-    assert_host_key_rejection(&err.to_string());
+    assert!(
+        matches!(err, GitError::UnknownHostKey { ref host, .. } if host == "127.0.0.1"),
+        "expected UnknownHostKey, got: {err:?}"
+    );
 }
 
 #[test]
@@ -312,22 +315,10 @@ fn strict_with_mismatched_key_rejects() {
     let repo = make_repo(fx.ssh_url(), fx.credentials());
 
     let err = client.fetch(&repo).expect_err("fetch must fail");
-    assert_host_key_rejection(&err.to_string());
-}
-
-/// libgit2 substitutes its own generic message ("invalid or unknown
-/// remote ssh hostkey") when `certificate_check` returns Err — our
-/// verifier's structured message doesn't propagate out of the SSH
-/// transport. Treat any of the recognisable signals as proof that the
-/// fetch was rejected at the host-key check.
-fn assert_host_key_rejection(msg: &str) {
-    let m = msg.to_lowercase();
-    let rejected = m.contains("hostkey")
-        || m.contains("host key")
-        || m.contains("unknown ssh host key")
-        || m.contains("ssh host key mismatch")
-        || m.contains("class=ssh");
-    assert!(rejected, "expected host-key rejection, got: {msg}");
+    assert!(
+        matches!(err, GitError::HostKeyMismatch { ref host, .. } if host == "127.0.0.1"),
+        "expected HostKeyMismatch, got: {err:?}"
+    );
 }
 
 #[test]
