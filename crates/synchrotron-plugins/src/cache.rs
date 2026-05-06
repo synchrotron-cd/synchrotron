@@ -26,7 +26,7 @@
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use lru::LruCache;
 use sha2::{Digest, Sha256};
@@ -87,7 +87,11 @@ struct Inner {
 }
 
 struct Entry {
-    manifests: Vec<Manifest>,
+    /// `Arc<[Manifest]>` so hits return a refcount bump instead of
+    /// cloning every manifest. Plugin renders are deeply immutable
+    /// once produced — callers iterate, never mutate — so shared
+    /// ownership is the obvious shape.
+    manifests: Arc<[Manifest]>,
     bytes: usize,
 }
 
@@ -109,12 +113,12 @@ impl Cache {
         }
     }
 
-    pub fn get(&self, key: &CacheKey) -> Option<Vec<Manifest>> {
+    pub fn get(&self, key: &CacheKey) -> Option<Arc<[Manifest]>> {
         let mut guard = self.inner.lock().expect("cache mutex poisoned");
         match guard.lru.get(key) {
             Some(entry) => {
                 self.hits.fetch_add(1, Ordering::Relaxed);
-                Some(entry.manifests.clone())
+                Some(Arc::clone(&entry.manifests))
             }
             None => {
                 self.misses.fetch_add(1, Ordering::Relaxed);
@@ -127,7 +131,10 @@ impl Cache {
     /// honor both the count and byte bounds.
     pub fn put(&self, key: CacheKey, manifests: Vec<Manifest>) {
         let bytes = estimate_bytes(&manifests);
-        let entry = Entry { manifests, bytes };
+        let entry = Entry {
+            manifests: Arc::from(manifests),
+            bytes,
+        };
 
         let mut guard = self.inner.lock().expect("cache mutex poisoned");
 

@@ -31,7 +31,7 @@
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use lru::LruCache;
 use sha2::{Digest, Sha256};
@@ -93,7 +93,9 @@ struct Inner {
 }
 
 struct Entry {
-    manifests: Vec<Manifest>,
+    /// `Arc<[Manifest]>` — see the matching note in `cache.rs`.
+    /// Hits return a refcount bump; renders are immutable.
+    manifests: Arc<[Manifest]>,
     bytes: usize,
 }
 
@@ -120,12 +122,12 @@ impl AppCache {
         Self::new(DEFAULT_MAX_ENTRIES, DEFAULT_MAX_BYTES)
     }
 
-    pub fn get(&self, key: &AppCacheKey) -> Option<Vec<Manifest>> {
+    pub fn get(&self, key: &AppCacheKey) -> Option<Arc<[Manifest]>> {
         let mut guard = self.inner.lock().expect("app cache mutex poisoned");
         match guard.lru.get(key) {
             Some(entry) => {
                 self.hits.fetch_add(1, Ordering::Relaxed);
-                Some(entry.manifests.clone())
+                Some(Arc::clone(&entry.manifests))
             }
             None => {
                 self.misses.fetch_add(1, Ordering::Relaxed);
@@ -136,7 +138,10 @@ impl AppCache {
 
     pub fn put(&self, key: AppCacheKey, manifests: Vec<Manifest>) {
         let bytes = estimate_bytes(&manifests);
-        let entry = Entry { manifests, bytes };
+        let entry = Entry {
+            manifests: Arc::from(manifests),
+            bytes,
+        };
 
         let mut guard = self.inner.lock().expect("app cache mutex poisoned");
 
