@@ -47,11 +47,19 @@ pub enum SourceError {
 }
 
 pub trait DesiredSource: Send + Sync {
-    fn desired(&self, app: &AppName) -> Result<Vec<Manifest>, SourceError>;
+    /// Returns the per-app manifest set as a refcounted slice. The
+    /// reconciler only reads this — never mutates — so handing back
+    /// an `Arc<[Manifest]>` (cheap clone, shared backing buffer)
+    /// avoids deep-copying the per-app manifest set on every call.
+    /// At 10k apps × 25 manifests this matters a lot for steady-state
+    /// memory; see y0v.3 baseline.
+    fn desired(&self, app: &AppName) -> Result<Arc<[Manifest]>, SourceError>;
 }
 
 pub trait LiveSource: Send + Sync {
-    fn live(&self, app: &AppName, cluster: &ClusterName) -> Result<Vec<Manifest>, SourceError>;
+    /// See [`DesiredSource::desired`]; same shared-buffer rationale.
+    fn live(&self, app: &AppName, cluster: &ClusterName)
+        -> Result<Arc<[Manifest]>, SourceError>;
 }
 
 /// Outcome of a single reconcile pass.
@@ -240,17 +248,22 @@ mod tests {
             .expect("one manifest")
     }
 
+    type DesiredMap = HashMap<String, Result<Arc<[Manifest]>, SourceError>>;
+
     #[derive(Default)]
     struct StubDesired {
-        by_app: Mutex<HashMap<String, Result<Vec<Manifest>, SourceError>>>,
+        by_app: Mutex<DesiredMap>,
     }
     impl StubDesired {
         fn set(&self, app: &str, v: Result<Vec<Manifest>, SourceError>) {
-            self.by_app.lock().unwrap().insert(app.to_string(), v);
+            self.by_app
+                .lock()
+                .unwrap()
+                .insert(app.to_string(), v.map(Arc::from));
         }
     }
     impl DesiredSource for StubDesired {
-        fn desired(&self, app: &AppName) -> Result<Vec<Manifest>, SourceError> {
+        fn desired(&self, app: &AppName) -> Result<Arc<[Manifest]>, SourceError> {
             self.by_app
                 .lock()
                 .unwrap()
@@ -260,7 +273,7 @@ mod tests {
         }
     }
 
-    type LiveMap = HashMap<(String, String), Result<Vec<Manifest>, SourceError>>;
+    type LiveMap = HashMap<(String, String), Result<Arc<[Manifest]>, SourceError>>;
 
     #[derive(Default)]
     struct StubLive {
@@ -271,11 +284,15 @@ mod tests {
             self.by_key
                 .lock()
                 .unwrap()
-                .insert((app.to_string(), cluster.to_string()), v);
+                .insert((app.to_string(), cluster.to_string()), v.map(Arc::from));
         }
     }
     impl LiveSource for StubLive {
-        fn live(&self, app: &AppName, cluster: &ClusterName) -> Result<Vec<Manifest>, SourceError> {
+        fn live(
+            &self,
+            app: &AppName,
+            cluster: &ClusterName,
+        ) -> Result<Arc<[Manifest]>, SourceError> {
             self.by_key
                 .lock()
                 .unwrap()

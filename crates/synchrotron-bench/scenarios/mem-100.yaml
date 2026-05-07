@@ -1,0 +1,8 @@
+name: mem-100
+apps: 100
+manifests_per_app: 25
+clusters: 1
+drift_ratio: 0.1
+duration_seconds: 3
+warmup_sweeps: 1
+concurrency: 64

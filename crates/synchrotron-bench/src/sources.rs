@@ -16,8 +16,8 @@ use synchrotron_reconcile::{DesiredSource, LiveSource, SourceError};
 use synchrotron_types::{AppName, ClusterName};
 
 pub struct SyntheticState {
-    desired: HashMap<AppName, Arc<Vec<Manifest>>>,
-    live: HashMap<AppName, Arc<Vec<Manifest>>>,
+    desired: HashMap<AppName, Arc<[Manifest]>>,
+    live: HashMap<AppName, Arc<[Manifest]>>,
     pub app_names: Vec<AppName>,
     pub cluster_names: Vec<ClusterName>,
 }
@@ -44,8 +44,8 @@ impl SyntheticState {
                     );
                 }
             }
-            desired.insert(app.clone(), Arc::new(d));
-            live.insert(app.clone(), Arc::new(l));
+            desired.insert(app.clone(), Arc::from(d));
+            live.insert(app.clone(), Arc::from(l));
             app_names.push(app);
         }
 
@@ -93,11 +93,11 @@ fn configmap(name: &str, data_value: &str) -> Manifest {
 pub struct SyntheticDesired(pub Arc<SyntheticState>);
 
 impl DesiredSource for SyntheticDesired {
-    fn desired(&self, app: &AppName) -> Result<Vec<Manifest>, SourceError> {
+    fn desired(&self, app: &AppName) -> Result<Arc<[Manifest]>, SourceError> {
         self.0
             .desired
             .get(app)
-            .map(|v| (**v).clone())
+            .cloned()
             .ok_or(SourceError::NotFound)
     }
 }
@@ -107,11 +107,11 @@ impl DesiredSource for SyntheticDesired {
 pub struct SyntheticLive(pub Arc<SyntheticState>);
 
 impl LiveSource for SyntheticLive {
-    fn live(&self, app: &AppName, _cluster: &ClusterName) -> Result<Vec<Manifest>, SourceError> {
-        self.0
-            .live
-            .get(app)
-            .map(|v| (**v).clone())
-            .ok_or(SourceError::NotFound)
+    fn live(
+        &self,
+        app: &AppName,
+        _cluster: &ClusterName,
+    ) -> Result<Arc<[Manifest]>, SourceError> {
+        self.0.live.get(app).cloned().ok_or(SourceError::NotFound)
     }
 }

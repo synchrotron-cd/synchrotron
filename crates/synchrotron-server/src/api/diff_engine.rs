@@ -230,9 +230,9 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct StubDesired(Mutex<HashMap<String, Vec<Manifest>>>);
+    struct StubDesired(Mutex<HashMap<String, Arc<[Manifest]>>>);
     impl DesiredSource for StubDesired {
-        fn desired(&self, app: &AppName) -> Result<Vec<Manifest>, SourceError> {
+        fn desired(&self, app: &AppName) -> Result<Arc<[Manifest]>, SourceError> {
             self.0
                 .lock()
                 .unwrap()
@@ -242,14 +242,16 @@ mod tests {
         }
     }
 
+    type LiveMap = HashMap<(String, String), Arc<[Manifest]>>;
+
     #[derive(Default)]
-    struct StubLive(Mutex<HashMap<(String, String), Vec<Manifest>>>);
+    struct StubLive(Mutex<LiveMap>);
     impl LiveSource for StubLive {
         fn live(
             &self,
             app: &AppName,
             cluster: &ClusterName,
-        ) -> Result<Vec<Manifest>, SourceError> {
+        ) -> Result<Arc<[Manifest]>, SourceError> {
             self.0
                 .lock()
                 .unwrap()
@@ -261,12 +263,12 @@ mod tests {
 
     fn engine(d: Vec<Manifest>, l: Vec<Manifest>) -> PlannerDiffEngine {
         let desired = Arc::new(StubDesired::default());
-        desired.0.lock().unwrap().insert("app".into(), d);
+        desired.0.lock().unwrap().insert("app".into(), d.into());
         let live = Arc::new(StubLive::default());
         live.0
             .lock()
             .unwrap()
-            .insert(("app".into(), "prod".into()), l);
+            .insert(("app".into(), "prod".into()), l.into());
         PlannerDiffEngine::new(desired, live)
     }
 

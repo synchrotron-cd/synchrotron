@@ -105,6 +105,52 @@ likely culprit is `Vec<Manifest>` clones on every
 `DesiredSource::desired` / `LiveSource::live` call (the source
 traits return owned `Vec`). y0v.3 will profile and fix.
 
+## Memory profile (y0v.3)
+
+Three runs at different scales to attribute per-app cost:
+
+| scenario | apps | peak RSS | RSS/app |
+|---|---|---|---|
+| `mem-100`     | 100    | 20 MB    | 205 KB |
+| `mem-1k`      | 1,000  | 149 MB   | 153 KB |
+| `10k-apps`    | 10,000 | 1,431 MB | 147 KB |
+
+Marginal per-app RSS converges to **~143 KB/app**:
+`(1431 − 20) MB / (10,000 − 100) ≈ 143 KB`. The 100-app number is
+inflated by ~10 MB of fixed runtime overhead (binary, tokio).
+
+143 KB/app comes from holding 50 manifests per app in process
+(25 desired + 25 live), each ~2.9 KB. The cost is `Manifest.body:
+serde_yaml_ng::Value` — a heavy enum tree with `Mapping`
+(HashMap) nodes and a `String` allocation per key/value. Even a
+trivial ConfigMap body inflates to ~3 KB.
+
+**Target (<50KB/app) is not currently met** — see
+`synchrotron-cd-y0v.3.1` for the structural fix. Closing the gap
+requires changing `Manifest.body` to a more compact form (e.g.
+canonical YAML bytes parsed lazily, or a typed-fields-only struct
+that drops verbatim body retention). That refactor touches every
+consumer (planner, plugins, diff, kube apply) so it's deferred to
+a dedicated task.
+
+### Latency win from `Arc<[Manifest]>` source traits
+
+Switching `DesiredSource::desired` / `LiveSource::live` from
+`Vec<Manifest>` to `Arc<[Manifest]>` (sharing the source-owned
+buffer instead of cloning per call) cut planner-bound latency
+roughly in half on the 10k-apps scenario:
+
+| metric | before | after | ratio |
+|---|---|---|---|
+| p50    |  139 µs |  65 µs | 0.47× |
+| p95    |  166 µs |  77 µs | 0.46× |
+| p99    |  294 µs | 139 µs | 0.47× |
+| tput   |  62 k/s | 110 k/s | 1.78× |
+
+Peak RSS was unchanged (1417 → 1431 MB) — the clones were
+transient and reclaimed by the allocator, not retained, so this
+is a CPU/cache win, not a memory win.
+
 ## Reproducing on another machine
 
 Numbers will vary with CPU count and memory bandwidth — the

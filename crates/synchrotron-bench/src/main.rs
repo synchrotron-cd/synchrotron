@@ -19,6 +19,14 @@ struct Args {
     /// Also print a one-line summary to stderr.
     #[arg(long, default_value_t = true)]
     summary: bool,
+
+    /// CI budget check: fail if `peak_rss_bytes / apps` exceeds
+    /// this many KB. Defaults to disabled (0). The current
+    /// production-realistic budget is tracked in y0v.3.1; until
+    /// that lands, set this to ~250 KB to guard against
+    /// regressions without falsely failing.
+    #[arg(long, default_value_t = 0)]
+    max_rss_kb_per_app: u64,
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -39,6 +47,17 @@ async fn main() -> anyhow::Result<()> {
     match &args.out {
         Some(p) => std::fs::write(p, &json)?,
         None => println!("{json}"),
+    }
+
+    if args.max_rss_kb_per_app > 0 {
+        let kb_per_app = report.memory.peak_rss_bytes / 1024 / report.config.apps as u64;
+        if kb_per_app > args.max_rss_kb_per_app {
+            eprintln!(
+                "BUDGET FAIL: {} KB/app exceeds limit of {} KB/app",
+                kb_per_app, args.max_rss_kb_per_app
+            );
+            std::process::exit(2);
+        }
     }
 
     if args.summary {

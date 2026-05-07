@@ -46,3 +46,13 @@ bench SCENARIO="smoke":
     cargo run --release -p synchrotron-bench -- \
       --scenario crates/synchrotron-bench/scenarios/{{SCENARIO}}.yaml \
       --out reports/{{SCENARIO}}.json
+
+# Memory budget guard — fails if RSS per app regresses past 250 KB.
+# Real target is <50 KB per y0v.3; tracked in y0v.3.1 (Manifest.body
+# representation refactor). 250 KB is the current ceiling for
+# regression detection.
+bench-budget:
+    cargo run --release -p synchrotron-bench -- \
+      --scenario crates/synchrotron-bench/scenarios/mem-1k.yaml \
+      --max-rss-kb-per-app 250 \
+      --out reports/mem-budget.json

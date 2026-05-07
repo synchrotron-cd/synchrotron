@@ -40,15 +40,15 @@ fn manifest(kind: &str, name: &str, ns: &str, marker: &str) -> Manifest {
 
 #[derive(Default)]
 struct StaticDesired {
-    by_app: Mutex<HashMap<String, Vec<Manifest>>>,
+    by_app: Mutex<HashMap<String, Arc<[Manifest]>>>,
 }
 impl StaticDesired {
     fn set(&self, app: &str, m: Vec<Manifest>) {
-        self.by_app.lock().unwrap().insert(app.into(), m);
+        self.by_app.lock().unwrap().insert(app.into(), m.into());
     }
 }
 impl DesiredSource for StaticDesired {
-    fn desired(&self, app: &AppName) -> Result<Vec<Manifest>, SourceError> {
+    fn desired(&self, app: &AppName) -> Result<Arc<[Manifest]>, SourceError> {
         self.by_app
             .lock()
             .unwrap()
@@ -58,20 +58,26 @@ impl DesiredSource for StaticDesired {
     }
 }
 
+type LiveMap = HashMap<(String, String), Arc<[Manifest]>>;
+
 #[derive(Default)]
 struct StaticLive {
-    by_key: Mutex<HashMap<(String, String), Vec<Manifest>>>,
+    by_key: Mutex<LiveMap>,
 }
 impl StaticLive {
     fn set(&self, app: &str, cluster: &str, m: Vec<Manifest>) {
         self.by_key
             .lock()
             .unwrap()
-            .insert((app.into(), cluster.into()), m);
+            .insert((app.into(), cluster.into()), m.into());
     }
 }
 impl LiveSource for StaticLive {
-    fn live(&self, app: &AppName, cluster: &ClusterName) -> Result<Vec<Manifest>, SourceError> {
+    fn live(
+        &self,
+        app: &AppName,
+        cluster: &ClusterName,
+    ) -> Result<Arc<[Manifest]>, SourceError> {
         self.by_key
             .lock()
             .unwrap()
