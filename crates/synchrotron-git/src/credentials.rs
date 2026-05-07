@@ -9,9 +9,10 @@ use serde::{Deserialize, Serialize};
 /// `SshAgent` delegates to a running ssh-agent for environments where
 /// raw key material shouldn't be readable by the operator process.
 /// GitHub App tokens are added by sibling sub-issue h48.1.3.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Credentials {
+    #[default]
     None,
     HttpBasic {
         username: String,
@@ -46,10 +47,4 @@ pub enum Credentials {
         #[serde(default)]
         api_base: Option<String>,
     },
-}
-
-impl Default for Credentials {
-    fn default() -> Self {
-        Self::None
-    }
 }
