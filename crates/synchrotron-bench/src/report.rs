@@ -21,6 +21,22 @@ pub struct Report {
     /// webhook-burst scenarios; `None` for sweep scenarios.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub webhook_latency_ms: Option<WebhookLatencyStats>,
+    /// Per-cluster reconcile counts. Populated only when the
+    /// scenario uses multiple clusters (or has per-cluster
+    /// latency). The y0v.5 fairness check divides max by min: a
+    /// ratio close to 1.0 means the slow clusters didn't starve
+    /// the fast ones.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_cluster: Option<Vec<ClusterStats>>,
+}
+
+/// Per-cluster aggregate counts for one bench run. Sorted by
+/// cluster name in the report for stable diffing across runs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterStats {
+    pub cluster: String,
+    pub reconciles: u64,
+    pub injected_latency_ms: u64,
 }
 
 /// End-to-end latency from `WebhookTriggered` publish to

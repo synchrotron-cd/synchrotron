@@ -57,6 +57,15 @@ pub struct ScenarioConfig {
     /// allocator warm up. Defaults to 1.
     #[serde(default = "default_warmup_bursts")]
     pub webhook_warmup_bursts: u32,
+
+    /// Per-cluster artificial latency in milliseconds, applied as a
+    /// blocking sleep inside `SyntheticLive::live`. Models slow
+    /// informer caches / kube-API round-trips. Length must equal
+    /// `clusters` when set; `None` (default) means all-zero. Used by
+    /// the y0v.5 fairness scenario to show that slow clusters don't
+    /// starve fast ones.
+    #[serde(default)]
+    pub cluster_latencies_ms: Option<Vec<u64>>,
 }
 
 fn default_manifests_per_app() -> usize {
@@ -108,6 +117,15 @@ impl ScenarioConfig {
         if self.concurrency == 0 {
             anyhow::bail!("concurrency must be > 0");
         }
+        if let Some(lats) = &self.cluster_latencies_ms {
+            if lats.len() != self.clusters {
+                anyhow::bail!(
+                    "cluster_latencies_ms length ({}) must equal clusters ({})",
+                    lats.len(),
+                    self.clusters
+                );
+            }
+        }
         Ok(())
     }
 }
@@ -129,7 +147,16 @@ mod tests {
             concurrency: 4,
             webhook_bursts: None,
             webhook_warmup_bursts: 1,
+            cluster_latencies_ms: None,
         }
+    }
+
+    #[test]
+    fn validate_rejects_cluster_latency_length_mismatch() {
+        let mut c = ok_cfg();
+        c.clusters = 3;
+        c.cluster_latencies_ms = Some(vec![10, 20]);
+        assert!(c.validate().is_err());
     }
 
     #[test]

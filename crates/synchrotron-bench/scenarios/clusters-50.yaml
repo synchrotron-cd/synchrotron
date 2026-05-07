@@ -1,0 +1,70 @@
+# y0v.5 fairness scenario: 50 clusters, 100 apps each (5000 total).
+# Five "slow" clusters (cluster-000..004) at 50ms simulated informer
+# latency; the rest at 0ms. The check is: per-cluster reconcile
+# counts in the report should be balanced across clusters in the same
+# tier — slow clusters should not starve fast ones.
+#
+# At 5000 apps and concurrency=64, one all-fast sweep ought to drain
+# in well under a second. Slow clusters take ~5s each per sweep
+# (100 apps × 50ms / a worker thread). The scenario runs short
+# enough that the fast clusters complete many sweeps; the report
+# tells the fairness story.
+name: clusters-50
+apps: 5000
+manifests_per_app: 25
+clusters: 50
+drift_ratio: 0.1
+duration_seconds: 15
+warmup_sweeps: 0
+concurrency: 64
+cluster_latencies_ms:
+  - 50
+  - 50
+  - 50
+  - 50
+  - 50
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0

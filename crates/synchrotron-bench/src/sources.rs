@@ -9,6 +9,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde_yaml_ng::Value;
 use synchrotron_plugins::{Gvk, Manifest};
@@ -20,10 +21,24 @@ pub struct SyntheticState {
     live: HashMap<AppName, Arc<[Manifest]>>,
     pub app_names: Vec<AppName>,
     pub cluster_names: Vec<ClusterName>,
+    /// Per-cluster artificial latency, indexed by cluster name. Used
+    /// by `SyntheticLive` to model slow-informer behavior; empty map
+    /// = uniform 0 ms.
+    cluster_latency: HashMap<ClusterName, Duration>,
 }
 
 impl SyntheticState {
     pub fn build(apps: usize, manifests_per_app: usize, clusters: usize, drift_ratio: f64) -> Self {
+        Self::build_with_latencies(apps, manifests_per_app, clusters, drift_ratio, None)
+    }
+
+    pub fn build_with_latencies(
+        apps: usize,
+        manifests_per_app: usize,
+        clusters: usize,
+        drift_ratio: f64,
+        cluster_latencies_ms: Option<&[u64]>,
+    ) -> Self {
         let drift_count = ((manifests_per_app as f64) * drift_ratio).floor() as usize;
 
         let mut desired = HashMap::with_capacity(apps);
@@ -52,12 +67,27 @@ impl SyntheticState {
             .map(|c| ClusterName(format!("cluster-{c:03}")))
             .collect();
 
+        let cluster_latency: HashMap<ClusterName, Duration> = match cluster_latencies_ms {
+            Some(lats) => cluster_names
+                .iter()
+                .zip(lats.iter())
+                .filter(|(_, &ms)| ms > 0)
+                .map(|(name, &ms)| (name.clone(), Duration::from_millis(ms)))
+                .collect(),
+            None => HashMap::new(),
+        };
+
         Self {
             desired,
             live,
             app_names,
             cluster_names,
+            cluster_latency,
         }
+    }
+
+    pub fn cluster_latency(&self, cluster: &ClusterName) -> Option<Duration> {
+        self.cluster_latency.get(cluster).copied()
     }
 }
 
@@ -110,12 +140,21 @@ impl DesiredSource for SyntheticDesired {
     }
 }
 
-/// `LiveSource` view over a `SyntheticState`. Cluster name is
-/// ignored — apps are global in this harness.
+/// `LiveSource` view over a `SyntheticState`. App data is global in
+/// this harness, but per-cluster artificial latency is honored —
+/// the configured sleep blocks the calling thread, modeling a slow
+/// informer cache / kube-API round-trip. This is a synchronous
+/// blocking sleep on purpose: the production `LiveSource` reads an
+/// in-memory informer cache today, but its lookup cost will scale
+/// with cluster size; injecting blocking time here lets the y0v.5
+/// fairness scenario stress the worker pool the way real I/O would.
 pub struct SyntheticLive(pub Arc<SyntheticState>);
 
 impl LiveSource for SyntheticLive {
-    fn live(&self, app: &AppName, _cluster: &ClusterName) -> Result<Arc<[Manifest]>, SourceError> {
+    fn live(&self, app: &AppName, cluster: &ClusterName) -> Result<Arc<[Manifest]>, SourceError> {
+        if let Some(d) = self.0.cluster_latency(cluster) {
+            std::thread::sleep(d);
+        }
         self.0.live.get(app).cloned().ok_or(SourceError::NotFound)
     }
 }

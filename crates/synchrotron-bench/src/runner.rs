@@ -43,11 +43,12 @@ async fn run_sweep_scenario(cfg: ScenarioConfig) -> anyhow::Result<Report> {
         "building synthetic state"
     );
 
-    let state = Arc::new(SyntheticState::build(
+    let state = Arc::new(SyntheticState::build_with_latencies(
         cfg.apps,
         cfg.manifests_per_app,
         cfg.clusters,
         cfg.drift_ratio,
+        cfg.cluster_latencies_ms.as_deref(),
     ));
 
     let bus = EventBus::new(1024);
@@ -91,6 +92,19 @@ async fn run_sweep_scenario(cfg: ScenarioConfig) -> anyhow::Result<Report> {
     // Sweep number on which sampling started. `u32::MAX` = not yet.
     let recording_from_sweep = Arc::new(AtomicU64::new(u64::MAX));
     let current_sweep = Arc::new(AtomicU64::new(0));
+    // Per-cluster reconcile counts (recorded only after warmup).
+    let per_cluster_counts: Arc<Vec<AtomicU64>> = Arc::new(
+        (0..state.cluster_names.len())
+            .map(|_| AtomicU64::new(0))
+            .collect(),
+    );
+    // Per-app cluster index, parallel to app_lookup. Avoids hashing
+    // the cluster name in the handler hot path.
+    let per_app_cluster_idx: Arc<Vec<usize>> = Arc::new(
+        (0..state.app_names.len())
+            .map(|i| i % state.cluster_names.len())
+            .collect(),
+    );
 
     let handler = {
         let reconciler = reconciler.clone();
@@ -101,6 +115,8 @@ async fn run_sweep_scenario(cfg: ScenarioConfig) -> anyhow::Result<Report> {
         let failed = failed.clone();
         let recording_from = recording_from_sweep.clone();
         let current_sweep = current_sweep.clone();
+        let per_cluster_counts = per_cluster_counts.clone();
+        let per_app_cluster_idx = per_app_cluster_idx.clone();
         move |ctx: synchrotron_reconcile::JobCtx| {
             let reconciler = reconciler.clone();
             let app_lookup = app_lookup.clone();
@@ -110,6 +126,8 @@ async fn run_sweep_scenario(cfg: ScenarioConfig) -> anyhow::Result<Report> {
             let failed = failed.clone();
             let recording_from = recording_from.clone();
             let current_sweep = current_sweep.clone();
+            let per_cluster_counts = per_cluster_counts.clone();
+            let per_app_cluster_idx = per_app_cluster_idx.clone();
             Box::pin(async move {
                 let Some(&idx) = by_id.get(&ctx.app_id) else {
                     return;
@@ -130,6 +148,8 @@ async fn run_sweep_scenario(cfg: ScenarioConfig) -> anyhow::Result<Report> {
                     }
                     let us = elapsed.as_micros() as u64;
                     latency_us.lock().unwrap().push(us);
+                    let c_idx = per_app_cluster_idx[idx];
+                    per_cluster_counts[c_idx].fetch_add(1, Ordering::Relaxed);
                 }
             }) as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
         }
@@ -213,6 +233,25 @@ async fn run_sweep_scenario(cfg: ScenarioConfig) -> anyhow::Result<Report> {
         0.0
     };
 
+    let per_cluster: Option<Vec<crate::report::ClusterStats>> =
+        if state.cluster_names.len() > 1 || cfg.cluster_latencies_ms.is_some() {
+            let injected = cfg.cluster_latencies_ms.clone().unwrap_or_default();
+            Some(
+                state
+                    .cluster_names
+                    .iter()
+                    .enumerate()
+                    .map(|(i, name)| crate::report::ClusterStats {
+                        cluster: name.0.clone(),
+                        reconciles: per_cluster_counts[i].load(Ordering::Relaxed),
+                        injected_latency_ms: injected.get(i).copied().unwrap_or(0),
+                    })
+                    .collect(),
+            )
+        } else {
+            None
+        };
+
     Ok(Report {
         scenario: cfg.name.clone(),
         config: cfg,
@@ -223,6 +262,7 @@ async fn run_sweep_scenario(cfg: ScenarioConfig) -> anyhow::Result<Report> {
         memory,
         throughput_per_second: throughput,
         webhook_latency_ms: None,
+        per_cluster,
     })
 }
 
@@ -560,6 +600,7 @@ mod webhook {
             memory,
             throughput_per_second: throughput,
             webhook_latency_ms: Some(webhook_stats),
+            per_cluster: None,
         })
     }
 }

@@ -1,0 +1,411 @@
+{
+  "scenario": "clusters-50",
+  "config": {
+    "name": "clusters-50",
+    "apps": 5000,
+    "manifests_per_app": 25,
+    "clusters": 50,
+    "drift_ratio": 0.1,
+    "iterations": null,
+    "duration_seconds": 15,
+    "warmup_sweeps": 0,
+    "concurrency": 64,
+    "webhook_bursts": null,
+    "webhook_warmup_bursts": 1,
+    "cluster_latencies_ms": [
+      50,
+      50,
+      50,
+      50,
+      50,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "started_at": "2026-05-07T04:02:25.115815089+00:00",
+  "elapsed_seconds": 17.375664517,
+  "reconciles": {
+    "completed": 40000,
+    "failed": 0,
+    "sweeps": 8
+  },
+  "latency_us": {
+    "samples": 40000,
+    "min": 17,
+    "p50": 29,
+    "p95": 50108,
+    "p99": 50134,
+    "max": 52105,
+    "mean": 5038
+  },
+  "memory": {
+    "peak_rss_bytes": 463613952,
+    "final_rss_bytes": 463613952,
+    "samples": [
+      {
+        "t_seconds": 0.477011929,
+        "rss_bytes": 463044608
+      },
+      {
+        "t_seconds": 1.384726388,
+        "rss_bytes": 463093760
+      },
+      {
+        "t_seconds": 2.443031915,
+        "rss_bytes": 463118336
+      },
+      {
+        "t_seconds": 3.404929529,
+        "rss_bytes": 463257600
+      },
+      {
+        "t_seconds": 4.420887127,
+        "rss_bytes": 463273984
+      },
+      {
+        "t_seconds": 5.375549282,
+        "rss_bytes": 463319040
+      },
+      {
+        "t_seconds": 6.383687245,
+        "rss_bytes": 463335424
+      },
+      {
+        "t_seconds": 7.445159321,
+        "rss_bytes": 463384576
+      },
+      {
+        "t_seconds": 8.404379274,
+        "rss_bytes": 463405056
+      },
+      {
+        "t_seconds": 9.466736542,
+        "rss_bytes": 463454208
+      },
+      {
+        "t_seconds": 10.375614561999999,
+        "rss_bytes": 463474688
+      },
+      {
+        "t_seconds": 11.385407399,
+        "rss_bytes": 463515648
+      },
+      {
+        "t_seconds": 12.496933006,
+        "rss_bytes": 463536128
+      },
+      {
+        "t_seconds": 13.406864554,
+        "rss_bytes": 463552512
+      },
+      {
+        "t_seconds": 14.566209931,
+        "rss_bytes": 463577088
+      },
+      {
+        "t_seconds": 15.376661894,
+        "rss_bytes": 463597568
+      },
+      {
+        "t_seconds": 16.385999538,
+        "rss_bytes": 463613952
+      }
+    ]
+  },
+  "throughput_per_second": 2302.0702293638788,
+  "per_cluster": [
+    {
+      "cluster": "cluster-000",
+      "reconciles": 800,
+      "injected_latency_ms": 50
+    },
+    {
+      "cluster": "cluster-001",
+      "reconciles": 800,
+      "injected_latency_ms": 50
+    },
+    {
+      "cluster": "cluster-002",
+      "reconciles": 800,
+      "injected_latency_ms": 50
+    },
+    {
+      "cluster": "cluster-003",
+      "reconciles": 800,
+      "injected_latency_ms": 50
+    },
+    {
+      "cluster": "cluster-004",
+      "reconciles": 800,
+      "injected_latency_ms": 50
+    },
+    {
+      "cluster": "cluster-005",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-006",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-007",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-008",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-009",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-010",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-011",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-012",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-013",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-014",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-015",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-016",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-017",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-018",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-019",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-020",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-021",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-022",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-023",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-024",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-025",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-026",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-027",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-028",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-029",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-030",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-031",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-032",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-033",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-034",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-035",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-036",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-037",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-038",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-039",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-040",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-041",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-042",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-043",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-044",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-045",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-046",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-047",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-048",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    },
+    {
+      "cluster": "cluster-049",
+      "reconciles": 800,
+      "injected_latency_ms": 0
+    }
+  ]
+}

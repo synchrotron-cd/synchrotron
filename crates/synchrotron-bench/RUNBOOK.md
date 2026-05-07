@@ -244,6 +244,38 @@ guards the 1k scenario at 5000 ms p95 (`--max-webhook-p95-ms 5000`),
 which leaves plenty of margin for runner noise (CI is roughly
 5–10× slower than the workstation).
 
+## Multi-cluster fairness (y0v.5)
+
+`cluster_latencies_ms: [...]` in scenario YAML attaches an
+artificial blocking sleep to each cluster's `LiveSource::live`
+call. This models a slow informer cache / API server: real
+production `LiveSource` is in-memory today, but its lookup cost
+will scale with cluster size and informer freshness.
+
+**`clusters-50.yaml`**: 50 clusters × 100 apps (5,000 total),
+5 clusters with 50 ms injected latency, 45 at 0 ms. 15 s run,
+concurrency=64. Result:
+
+| signal | value | reading |
+|---|---|---|
+| sweeps   | 8                | wall time bound by slow clusters |
+| reconciles | 40,000 (0 fail)  | every cluster got 800 (5000 × 8) |
+| latency p50 | 29 µs            | fast clusters undegraded |
+| latency p95 | 50,108 µs        | slow-cluster injected latency only |
+| per-cluster | 800 each, all 50 | no starvation |
+
+**No-starvation interpretation**: the p50 stayed equal to the
+single-cluster baseline (29 µs vs ~35 µs in `mem-1k`), and per-cluster
+reconcile counts were uniform — slow clusters didn't push fast
+clusters out of the worker pool.
+
+**Out of scope for the synthetic harness**:
+- "Connection pool metrics within budget" (acceptance #3 in y0v.5)
+  applies to the real kube client's reqwest pool, which the
+  synthetic `LiveSource` doesn't model. Validating it needs a
+  multi-kind integration test, filed separately when the apply
+  path lands.
+
 ## Reproducing on another machine
 
 Numbers will vary with CPU count and memory bandwidth — the
