@@ -51,11 +51,11 @@ fn bench_plan(c: &mut Criterion) {
         let mut live_half_drift = desired.clone();
         for (i, m) in live_half_drift.iter_mut().enumerate() {
             if i % 2 == 0 {
-                m.body
-                    .value_mut()
-                    .as_mapping_mut()
+                let mut v = m.body.value().clone();
+                v.as_mapping_mut()
                     .unwrap()
                     .insert(Value::String("data".into()), Value::String("drift".into()));
+                m.body = v.into();
             }
         }
 

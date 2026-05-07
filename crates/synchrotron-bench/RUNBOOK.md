@@ -133,6 +133,30 @@ that drops verbatim body retention). That refactor touches every
 consumer (planner, plugins, diff, kube apply) so it's deferred to
 a dedicated task.
 
+### Slice 2 of d2p: byte-backed `ManifestBody` storage
+
+Source of truth moved from `serde_yaml_ng::Value` to canonical
+JSON `Arc<[u8]>`, with the parsed `Value` materialized lazily into
+an `Arc<OnceLock<Value>>` shared across clones.
+
+| metric (10k-apps) | before slice 2 | after slice 2 |
+|---|---|---|
+| RSS/app | 143 KB | **90 KB** (37%↓) |
+| p50    |  65 µs | 56 µs |
+| p95    |  77 µs | 66 µs |
+| p99    | 139 µs | 136 µs |
+| tput   | 110 k/s | **134 k/s** |
+
+**Caveat on the bench number**: a chunk of the 37% comes from
+`ManifestBody::clone` becoming shallow (two `Arc` bumps) instead of
+deep-cloning the `Value` tree. The synthetic source's drift setup
+(`let mut l = d.clone()`) now lets desired and live share body
+storage for non-drifted entries. In production, desired (AppCache)
+and live (kube informer cache) come from different processes, so
+this share doesn't apply — production may see a smaller win until
+slice 3 (hash equality, avoids the `Value` cache entirely on the
+noop steady-state path).
+
 ### Latency win from `Arc<[Manifest]>` source traits
 
 Switching `DesiredSource::desired` / `LiveSource::live` from

@@ -37,12 +37,14 @@ impl SyntheticState {
                 .collect();
             let mut l = d.clone();
             for entry in l.iter_mut().take(drift_count) {
-                if let Some(map) = entry.body.value_mut().as_mapping_mut() {
+                let mut v = entry.body.value().clone();
+                if let Some(map) = v.as_mapping_mut() {
                     map.insert(
                         Value::String("data".into()),
                         Value::String("drift".into()),
                     );
                 }
+                entry.body = v.into();
             }
             desired.insert(app.clone(), Arc::from(d));
             live.insert(app.clone(), Arc::from(l));

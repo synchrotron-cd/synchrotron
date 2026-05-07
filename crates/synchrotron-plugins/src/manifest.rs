@@ -1,5 +1,7 @@
 //! The common manifest type produced by every plugin runtime.
 
+use std::sync::{Arc, OnceLock};
+
 use serde::{Deserialize, Serialize};
 use serde_yaml_ng::Value;
 use thiserror::Error;
@@ -68,41 +70,125 @@ pub struct Manifest {
 
 /// Wrapper around the verbatim manifest body.
 ///
-/// Slice 1 of the d2p refactor: this is currently a thin newtype
-/// around [`Value`] with no behavior change. Subsequent slices will
-/// switch the storage to canonical bytes + lazy parsed view + a
-/// precomputed equality hash, which is why the wrapper exists at
-/// all — moving the call-site churn into one slice lets the storage
-/// swap land without re-touching every consumer.
+/// **Storage model** (slice 2 of d2p): the source of truth is
+/// `bytes` — canonical JSON bytes. The parsed `Value` is materialized
+/// lazily on first [`ManifestBody::value`] access and cached in a
+/// shared [`OnceLock`] so all clones see the same parse work. This
+/// trades a one-time parse cost for a much more compact in-memory
+/// footprint when the parsed view isn't needed.
 ///
-/// Use [`ManifestBody::value`] to read the parsed tree;
-/// [`ManifestBody::value_mut`] to mutate it. The newtype is
-/// `#[serde(transparent)]` so wire compatibility with prior callers
-/// is preserved.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(transparent)]
+/// In slice 2 alone, `PartialEq` still walks the parsed `Value`, so
+/// the planner forces a parse on every reconcile and the cache stays
+/// hot — meaning slice 2 *adds* the bytes overhead without yet
+/// shedding the `Value` overhead. Slice 3 swaps `PartialEq` to a
+/// hash compare against the canonical bytes; only at that point does
+/// the lazy `Value` actually stay un-populated for steady-state
+/// no-op reconciles, and the memory win realizes.
+///
+/// JSON (not YAML) is the canonical form because:
+/// 1. It's strictly smaller — no whitespace, no quoting flexibility.
+/// 2. It's the wire format we already serialize to for SSA
+///    (`yaml_to_json` in synchrotron-kube), so the round-trip is
+///    one we already exercise.
+/// 3. Kubernetes manifests are JSON-compatible by definition (they
+///    flow through the API server, which uses JSON internally).
+///
+/// Mutating the parsed tree in place is *not* supported (no
+/// `value_mut`); callers that need to mutate should rebuild a new
+/// `ManifestBody` from the modified `Value`. In practice the only
+/// mutation sites are bench/test setup, where reconstruction is
+/// cheap and clearer.
+#[derive(Debug, Clone)]
 pub struct ManifestBody {
-    value: Value,
+    /// Canonical JSON bytes. Source of truth.
+    bytes: Arc<[u8]>,
+    /// Lazy parsed view, shared across clones so the parse cost
+    /// is paid at most once per body instance, not once per clone.
+    parsed: Arc<OnceLock<Value>>,
 }
 
 impl ManifestBody {
+    /// Build from an in-memory parsed value. The value is serialized
+    /// to canonical JSON for storage; the parsed cache is primed
+    /// with the original value so the first `.value()` call is free.
     pub fn from_value(value: Value) -> Self {
-        Self { value }
+        let bytes: Arc<[u8]> = serde_json::to_vec(&value)
+            .expect("manifest body must be JSON-serializable")
+            .into();
+        let parsed = OnceLock::new();
+        // Best-effort prime; fails only if the cell is already
+        // populated, which can't happen on a fresh OnceLock.
+        let _ = parsed.set(value);
+        Self {
+            bytes,
+            parsed: Arc::new(parsed),
+        }
     }
+
+    /// Build from raw canonical bytes without parsing. The parsed
+    /// view is materialized lazily on first `.value()` call.
+    pub fn from_bytes(bytes: Arc<[u8]>) -> Self {
+        Self {
+            bytes,
+            parsed: Arc::new(OnceLock::new()),
+        }
+    }
+
+    /// Borrow the parsed tree, materializing it on first access.
+    /// Subsequent calls (and calls on clones) return the cached
+    /// value without re-parsing.
     pub fn value(&self) -> &Value {
-        &self.value
+        self.parsed.get_or_init(|| {
+            serde_json::from_slice(&self.bytes)
+                .expect("canonical bytes must round-trip through serde_yaml_ng::Value")
+        })
     }
-    pub fn value_mut(&mut self) -> &mut Value {
-        &mut self.value
-    }
+
+    /// Owned version of [`Self::value`]. Materializes if necessary
+    /// and returns a clone of the parsed tree.
     pub fn into_value(self) -> Value {
-        self.value
+        self.value().clone()
+    }
+
+    /// Borrow the canonical JSON bytes. Slice 3 will use this for
+    /// hash-based equality.
+    pub fn bytes(&self) -> &Arc<[u8]> {
+        &self.bytes
+    }
+}
+
+/// Equality is defined over the parsed [`Value`] for slice 2 — that
+/// preserves the planner's existing semantics (structural equality,
+/// regardless of byte-level differences like key ordering or
+/// whitespace). Slice 3 will swap this to a byte/hash compare for
+/// the planner's hot path; the parsed comparison stays as a
+/// fallback, but the planner won't reach it in steady state.
+impl PartialEq for ManifestBody {
+    fn eq(&self, other: &Self) -> bool {
+        self.value() == other.value()
+    }
+}
+
+impl Serialize for ManifestBody {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // Serialize through the parsed Value so callers that emit
+        // YAML (e.g. our manifest persistence) keep working as
+        // before. This is a no-op clone path through the existing
+        // serde_yaml_ng::Value impl.
+        self.value().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ManifestBody {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = Value::deserialize(deserializer)?;
+        Ok(Self::from_value(value))
     }
 }
 
 impl From<Value> for ManifestBody {
     fn from(value: Value) -> Self {
-        Self { value }
+        Self::from_value(value)
     }
 }
 

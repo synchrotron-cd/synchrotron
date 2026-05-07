@@ -73,15 +73,16 @@ fn indent(s: &str, n: usize) -> String {
 }
 
 fn mutate_replicas(m: &mut Manifest, new: u32) {
-    let v = m.body.value_mut().as_mapping_mut().unwrap();
+    let mut body = m.body.value().clone();
+    let v = body.as_mapping_mut().unwrap();
     let spec = v.get_mut("spec").unwrap().as_mapping_mut().unwrap();
     spec.insert(Value::String("replicas".into()), Value::Number(new.into()));
+    m.body = body.into();
 }
 
 fn mutate_one_env_value(m: &mut Manifest, idx: usize) {
-    let spec = m
-        .body
-        .value_mut()
+    let mut body = m.body.value().clone();
+    let spec = body
         .as_mapping_mut()
         .unwrap()
         .get_mut("spec")
@@ -104,6 +105,7 @@ fn mutate_one_env_value(m: &mut Manifest, idx: usize) {
             Value::String("MUTATED".into()),
         );
     }
+    m.body = body.into();
 }
 
 fn bench_diff(c: &mut Criterion) {
