@@ -75,14 +75,18 @@ jobs:
             --scenario crates/synchrotron-bench/scenarios/smoke.yaml \
             --out reports/smoke.json
 
-      # Budget guard. The 250 KB ceiling is documented in
-      # crates/synchrotron-bench/RUNBOOK.md and tracked in
-      # synchrotron-cd-d2p; tighten when that lands.
+      # Budget guard. After d2p (slices 768/v3z/v50), local mem-1k
+      # measures ~98 KB/app and 10k-apps ~92 KB/app. The accepted
+      # design footprint is ~110 KB/app (1.1 GB for 10k apps, well
+      # within typical container limits). CI guard at 130 KB/app
+      # gives ~20% headroom for runner noise — catches a regression
+      # past ~33% over the local baseline. Rationale documented in
+      # crates/synchrotron-bench/RUNBOOK.md.
       - name: Memory budget guard (1k apps)
         run: |
           ./target/release/synchrotron-bench \
             --scenario crates/synchrotron-bench/scenarios/mem-1k.yaml \
-            --max-rss-kb-per-app 250 \
+            --max-rss-kb-per-app 130 \
             --out reports/mem-budget.json
 
       - name: Print scenario summaries
