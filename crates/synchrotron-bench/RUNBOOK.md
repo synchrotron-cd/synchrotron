@@ -221,6 +221,29 @@ Peak RSS was unchanged (1417 → 1431 MB) — the clones were
 transient and reclaimed by the allocator, not retained, so this
 is a CPU/cache win, not a memory win.
 
+## Webhook→sync latency (y0v.4)
+
+`webhook_bursts: N` in scenario YAML switches the runner into
+end-to-end webhook mode: the harness wires a real `EventTrigger`
+against synthetic sources, publishes one
+`SystemEvent::WebhookTriggered` per burst, and measures per-app
+latency from publish to the matching `SyncOutcome`.
+
+`AppResolver` is synthetic — every webhook fans out to all apps,
+which is the y0v.4 worst case ("every app references this repo").
+
+Results:
+
+| scenario | apps | bursts | p50 | p95 | p99 |
+|---|---|---|---|---|---|
+| `webhook-burst-1k`  | 1,000  | 10 |   6 ms |   10 ms |   11 ms |
+| `webhook-burst-10k` | 10,000 | 5  | 377 ms |  598 ms |  623 ms |
+
+Both well under the y0v.4 target of **p95 < 5000 ms** (5 s). CI
+guards the 1k scenario at 5000 ms p95 (`--max-webhook-p95-ms 5000`),
+which leaves plenty of margin for runner noise (CI is roughly
+5–10× slower than the workstation).
+
 ## Reproducing on another machine
 
 Numbers will vary with CPU count and memory bandwidth — the

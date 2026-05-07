@@ -17,6 +17,56 @@ pub struct Report {
     pub latency_us: LatencyStats,
     pub memory: MemoryStats,
     pub throughput_per_second: f64,
+    /// Webhook → sync end-to-end latency. Populated only by
+    /// webhook-burst scenarios; `None` for sweep scenarios.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_latency_ms: Option<WebhookLatencyStats>,
+}
+
+/// End-to-end latency from `WebhookTriggered` publish to
+/// `SyncOutcome` publish, per app, in milliseconds. The ms unit
+/// matches the y0v.4 acceptance target (<5s = 5000 ms).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookLatencyStats {
+    pub samples: u64,
+    pub min: u64,
+    pub p50: u64,
+    pub p95: u64,
+    pub p99: u64,
+    pub max: u64,
+    pub mean: u64,
+}
+
+impl WebhookLatencyStats {
+    pub fn from_millis(mut samples: Vec<u64>) -> Self {
+        if samples.is_empty() {
+            return Self {
+                samples: 0,
+                min: 0,
+                p50: 0,
+                p95: 0,
+                p99: 0,
+                max: 0,
+                mean: 0,
+            };
+        }
+        samples.sort_unstable();
+        let n = samples.len();
+        let pick = |q: f64| {
+            let idx = ((n as f64) * q).floor() as usize;
+            samples[idx.min(n - 1)]
+        };
+        let sum: u128 = samples.iter().map(|&x| x as u128).sum();
+        Self {
+            samples: n as u64,
+            min: samples[0],
+            p50: pick(0.50),
+            p95: pick(0.95),
+            p99: pick(0.99),
+            max: samples[n - 1],
+            mean: (sum / n as u128) as u64,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

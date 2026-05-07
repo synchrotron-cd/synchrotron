@@ -89,6 +89,17 @@ jobs:
             --max-rss-kb-per-app 130 \
             --out reports/mem-budget.json
 
+      # y0v.4 acceptance gate: end-to-end webhook→sync p95 < 5000 ms.
+      # Local 1k-app measurement is ~10 ms p95; CI runners (4 vCPU,
+      # shared) run roughly 5–10× slower, so the 5000 ms target leaves
+      # plenty of margin for runner noise.
+      - name: Webhook latency budget guard
+        run: |
+          ./target/release/synchrotron-bench \
+            --scenario crates/synchrotron-bench/scenarios/webhook-burst.yaml \
+            --max-webhook-p95-ms 5000 \
+            --out reports/webhook-budget.json
+
       - name: Print scenario summaries
         if: always()
         run: |

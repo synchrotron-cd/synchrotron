@@ -27,6 +27,12 @@ struct Args {
     /// regressions without falsely failing.
     #[arg(long, default_value_t = 0)]
     max_rss_kb_per_app: u64,
+
+    /// CI budget check for webhook-burst scenarios: fail if the
+    /// webhook→sync p95 latency exceeds this many ms. Defaults to
+    /// disabled (0). The y0v.4 acceptance target is 5000 ms.
+    #[arg(long, default_value_t = 0)]
+    max_webhook_p95_ms: u64,
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -60,20 +66,54 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    if args.max_webhook_p95_ms > 0 {
+        match &report.webhook_latency_ms {
+            Some(s) if s.p95 > args.max_webhook_p95_ms => {
+                eprintln!(
+                    "BUDGET FAIL: webhook p95 {} ms exceeds limit of {} ms",
+                    s.p95, args.max_webhook_p95_ms
+                );
+                std::process::exit(2);
+            }
+            None => {
+                eprintln!(
+                    "BUDGET FAIL: --max-webhook-p95-ms set but scenario produced no webhook latency stats"
+                );
+                std::process::exit(2);
+            }
+            _ => {}
+        }
+    }
+
     if args.summary {
-        eprintln!(
-            "scenario={} sweeps={} completed={} failed={} elapsed={:.2}s p50={}us p95={}us p99={}us peak_rss={}MB tput={:.1}/s",
-            report.scenario,
-            report.reconciles.sweeps,
-            report.reconciles.completed,
-            report.reconciles.failed,
-            report.elapsed_seconds,
-            report.latency_us.p50,
-            report.latency_us.p95,
-            report.latency_us.p99,
-            report.memory.peak_rss_bytes / 1_048_576,
-            report.throughput_per_second,
-        );
+        if let Some(w) = &report.webhook_latency_ms {
+            eprintln!(
+                "scenario={} bursts={} completed={} failed={} elapsed={:.2}s webhook_p50={}ms p95={}ms p99={}ms peak_rss={}MB",
+                report.scenario,
+                report.reconciles.sweeps,
+                report.reconciles.completed,
+                report.reconciles.failed,
+                report.elapsed_seconds,
+                w.p50,
+                w.p95,
+                w.p99,
+                report.memory.peak_rss_bytes / 1_048_576,
+            );
+        } else {
+            eprintln!(
+                "scenario={} sweeps={} completed={} failed={} elapsed={:.2}s p50={}us p95={}us p99={}us peak_rss={}MB tput={:.1}/s",
+                report.scenario,
+                report.reconciles.sweeps,
+                report.reconciles.completed,
+                report.reconciles.failed,
+                report.elapsed_seconds,
+                report.latency_us.p50,
+                report.latency_us.p95,
+                report.latency_us.p99,
+                report.memory.peak_rss_bytes / 1_048_576,
+                report.throughput_per_second,
+            );
+        }
     }
 
     Ok(())

@@ -45,6 +45,18 @@ pub struct ScenarioConfig {
     /// Worker pool max in-flight reconciles.
     #[serde(default = "default_concurrency")]
     pub concurrency: usize,
+
+    /// Webhook-burst mode: fire `webhook_bursts` synthetic webhook
+    /// events, each fanning out to all `apps`, and measure per-app
+    /// webhook→sync latency. When set, `iterations` /
+    /// `duration_seconds` are ignored.
+    #[serde(default)]
+    pub webhook_bursts: Option<u32>,
+
+    /// Bursts to run before recording stats. Lets the worker pool /
+    /// allocator warm up. Defaults to 1.
+    #[serde(default = "default_warmup_bursts")]
+    pub webhook_warmup_bursts: u32,
 }
 
 fn default_manifests_per_app() -> usize {
@@ -58,6 +70,9 @@ fn default_warmup_sweeps() -> u32 {
 }
 fn default_concurrency() -> usize {
     64
+}
+fn default_warmup_bursts() -> u32 {
+    1
 }
 
 impl ScenarioConfig {
@@ -78,8 +93,14 @@ impl ScenarioConfig {
         if !(0.0..=1.0).contains(&self.drift_ratio) {
             anyhow::bail!("drift_ratio must be in [0.0, 1.0]");
         }
-        if self.iterations.is_none() && self.duration_seconds.is_none() {
-            anyhow::bail!("set either iterations or duration_seconds");
+        let has_sweep_budget = self.iterations.is_some() || self.duration_seconds.is_some();
+        let has_webhook_budget = self.webhook_bursts.is_some();
+        match (has_sweep_budget, has_webhook_budget) {
+            (false, false) => anyhow::bail!("set iterations, duration_seconds, or webhook_bursts"),
+            (true, true) => anyhow::bail!(
+                "set only one of iterations/duration_seconds (sweep) or webhook_bursts"
+            ),
+            _ => {}
         }
         if self.iterations.is_some() && self.duration_seconds.is_some() {
             anyhow::bail!("set only one of iterations / duration_seconds");
@@ -106,7 +127,25 @@ mod tests {
             duration_seconds: None,
             warmup_sweeps: 0,
             concurrency: 4,
+            webhook_bursts: None,
+            webhook_warmup_bursts: 1,
         }
+    }
+
+    #[test]
+    fn validate_accepts_webhook_mode() {
+        let mut c = ok_cfg();
+        c.iterations = None;
+        c.webhook_bursts = Some(5);
+        c.validate().unwrap();
+    }
+
+    #[test]
+    fn validate_rejects_sweep_and_webhook_together() {
+        let mut c = ok_cfg();
+        c.webhook_bursts = Some(5);
+        // iterations is also set
+        assert!(c.validate().is_err());
     }
 
     #[test]

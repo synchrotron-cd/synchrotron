@@ -1,0 +1,10 @@
+# 10k-app webhook burst variant — stress test of the y0v.4 target.
+# Same per-burst shape as webhook-burst.yaml, scaled up.
+name: webhook-burst-10k
+apps: 10000
+manifests_per_app: 25
+clusters: 1
+drift_ratio: 0.1
+webhook_bursts: 5
+webhook_warmup_bursts: 1
+concurrency: 64

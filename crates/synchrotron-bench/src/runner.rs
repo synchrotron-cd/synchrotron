@@ -25,6 +25,13 @@ use crate::report::{LatencyStats, MemSample, MemoryStats, ReconcileCounts, Repor
 use crate::sources::{SyntheticDesired, SyntheticLive, SyntheticState};
 
 pub async fn run_scenario(cfg: ScenarioConfig) -> anyhow::Result<Report> {
+    if cfg.webhook_bursts.is_some() {
+        return webhook::run(cfg).await;
+    }
+    run_sweep_scenario(cfg).await
+}
+
+async fn run_sweep_scenario(cfg: ScenarioConfig) -> anyhow::Result<Report> {
     let started_wall = chrono::Utc::now();
     let started = Instant::now();
 
@@ -215,6 +222,7 @@ pub async fn run_scenario(cfg: ScenarioConfig) -> anyhow::Result<Report> {
         latency_us: latency,
         memory,
         throughput_per_second: throughput,
+        webhook_latency_ms: None,
     })
 }
 
@@ -323,5 +331,235 @@ unsafe fn libc_sysconf_pagesize() -> u64 {
         v as u64
     } else {
         4096
+    }
+}
+
+/// Webhook-burst mode: drive synthetic webhooks through the real
+/// `EventTrigger` + `WorkerPool` and measure end-to-end webhook→sync
+/// latency per app. Each burst publishes one
+/// `SystemEvent::WebhookTriggered`; the synthetic `AppResolver`
+/// fans that out to all apps, the trigger enqueue-coalesces them,
+/// and the pool dispatches reconciles. We subscribe to
+/// `SyncOutcome` and record `received_at - publish_at` per app.
+mod webhook {
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use synchrotron_core::events::{EventBus, SystemEvent, WebhookSource};
+    use synchrotron_reconcile::{
+        AppResolver, EventTrigger, JobCtx, PoolConfig, Reconciler, WorkerPool,
+    };
+    use synchrotron_types::AppName;
+
+    use super::{read_rss_bytes, MemSample, MemoryStats, ReconcileCounts, Report};
+    use crate::config::ScenarioConfig;
+    use crate::report::{LatencyStats, WebhookLatencyStats};
+    use crate::sources::{SyntheticDesired, SyntheticLive, SyntheticState};
+
+    /// Resolves any repo to *all* synthetic apps. That matches the
+    /// y0v.4 worst case ("every app references this repo, fan out
+    /// to all of them"). Production resolvers would key on a real
+    /// repo→apps index.
+    struct AllAppsResolver(Arc<Vec<AppName>>);
+
+    impl AppResolver for AllAppsResolver {
+        fn apps_for_repo(&self, _repo: &str) -> Vec<AppName> {
+            (*self.0).clone()
+        }
+    }
+
+    pub async fn run(cfg: ScenarioConfig) -> anyhow::Result<Report> {
+        let started_wall = chrono::Utc::now();
+        let started = Instant::now();
+
+        let bursts = cfg.webhook_bursts.expect("guarded by caller");
+        tracing::info!(
+            scenario = %cfg.name,
+            apps = cfg.apps,
+            bursts,
+            warmup_bursts = cfg.webhook_warmup_bursts,
+            "webhook-burst scenario starting"
+        );
+
+        let state = Arc::new(SyntheticState::build(
+            cfg.apps,
+            cfg.manifests_per_app,
+            cfg.clusters,
+            cfg.drift_ratio,
+        ));
+
+        // Bus capacity needs to comfortably hold one burst's worth
+        // of SyncOutcome events plus the WebhookTriggered itself.
+        // 4× headroom keeps us out of the lag path even if the
+        // measurement loop briefly stalls.
+        let bus_capacity = (cfg.apps * 4).max(1024);
+        let bus = EventBus::new(bus_capacity);
+        let reconciler = Arc::new(Reconciler::new(
+            Arc::new(SyntheticDesired(state.clone())),
+            Arc::new(SyntheticLive(state.clone())),
+            bus.clone(),
+        ));
+
+        let app_lookup: Arc<std::collections::HashMap<String, usize>> = Arc::new(
+            state
+                .app_names
+                .iter()
+                .enumerate()
+                .map(|(i, app)| (app.0.clone(), i))
+                .collect(),
+        );
+        let cluster_lookup: Arc<Vec<synchrotron_types::ClusterName>> = Arc::new(
+            state
+                .app_names
+                .iter()
+                .enumerate()
+                .map(|(i, _)| state.cluster_names[i % state.cluster_names.len()].clone())
+                .collect(),
+        );
+
+        let handler = {
+            let reconciler = reconciler.clone();
+            let app_lookup = app_lookup.clone();
+            let cluster_lookup = cluster_lookup.clone();
+            let app_names = state.app_names.clone();
+            move |ctx: JobCtx| {
+                let reconciler = reconciler.clone();
+                let app_lookup = app_lookup.clone();
+                let cluster_lookup = cluster_lookup.clone();
+                let app_names = app_names.clone();
+                Box::pin(async move {
+                    let Some(&idx) = app_lookup.get(&ctx.app_id) else {
+                        return;
+                    };
+                    let app = &app_names[idx];
+                    let cluster = &cluster_lookup[idx];
+                    let _ = reconciler.reconcile_app(app, cluster);
+                })
+                    as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+            }
+        };
+
+        let pool = Arc::new(WorkerPool::new(
+            PoolConfig {
+                max_concurrent: cfg.concurrency,
+                per_app_queue_cap: 16,
+            },
+            handler,
+        ));
+
+        let resolver = Arc::new(AllAppsResolver(Arc::new(state.app_names.clone())));
+        let _trigger = EventTrigger::spawn(&bus, pool.handle(), resolver);
+
+        // Memory sampler.
+        let mem_samples = Arc::new(std::sync::Mutex::new(Vec::<MemSample>::new()));
+        let peak_rss = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let stop_sampler = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let sampler_handle = {
+            let mem_samples = mem_samples.clone();
+            let peak_rss = peak_rss.clone();
+            let stop_sampler = stop_sampler.clone();
+            tokio::spawn(async move {
+                let mut tick = tokio::time::interval(Duration::from_secs(1));
+                tick.tick().await;
+                loop {
+                    if stop_sampler.load(std::sync::atomic::Ordering::Relaxed) {
+                        break;
+                    }
+                    let rss = read_rss_bytes().unwrap_or(0);
+                    peak_rss.fetch_max(rss, std::sync::atomic::Ordering::Relaxed);
+                    mem_samples.lock().unwrap().push(MemSample {
+                        t_seconds: started.elapsed().as_secs_f64(),
+                        rss_bytes: rss,
+                    });
+                    tick.tick().await;
+                }
+            })
+        };
+
+        // Subscribe BEFORE publishing so we never miss a SyncOutcome.
+        let mut rx = bus.subscribe();
+
+        let mut latency_ms = Vec::<u64>::with_capacity((bursts as usize).saturating_mul(cfg.apps));
+        let mut completed: u64 = 0;
+        let mut failed: u64 = 0;
+
+        let total_bursts = cfg.webhook_warmup_bursts + bursts;
+        for burst_idx in 0..total_bursts {
+            let recording = burst_idx >= cfg.webhook_warmup_bursts;
+            let publish_at = Instant::now();
+            // Use a per-burst repo id so the trigger doesn't coalesce
+            // bursts together.
+            let repo = format!("repo-{burst_idx}");
+            bus.publish(SystemEvent::WebhookTriggered {
+                repo: repo.clone(),
+                source: WebhookSource::GitHub,
+            });
+
+            // Drain SyncOutcomes for this burst. Expect exactly
+            // `apps` events (the resolver returns all apps; the
+            // pool's per-app FIFO + coalesce make duplicates impossible
+            // within one burst).
+            let mut received: usize = 0;
+            while received < cfg.apps {
+                let evt = rx
+                    .recv()
+                    .await
+                    .map_err(|_| anyhow::anyhow!("event bus closed mid-scenario"))?;
+                // Ignore the WebhookTriggered echo and other events;
+                // only SyncOutcome closes the loop.
+                if let SystemEvent::SyncOutcome { success, .. } = evt.event {
+                    if recording {
+                        let elapsed_ms = publish_at.elapsed().as_millis() as u64;
+                        latency_ms.push(elapsed_ms);
+                        if success {
+                            completed += 1;
+                        } else {
+                            failed += 1;
+                        }
+                    }
+                    received += 1;
+                }
+            }
+        }
+
+        stop_sampler.store(true, std::sync::atomic::Ordering::Relaxed);
+        let _ = sampler_handle.await;
+
+        let elapsed = started.elapsed();
+        let webhook_stats = WebhookLatencyStats::from_millis(latency_ms);
+
+        let mem_samples = std::mem::take(&mut *mem_samples.lock().unwrap());
+        let final_rss = mem_samples.last().map(|s| s.rss_bytes).unwrap_or(0);
+        let memory = MemoryStats {
+            peak_rss_bytes: peak_rss.load(std::sync::atomic::Ordering::Relaxed),
+            final_rss_bytes: final_rss,
+            samples: mem_samples,
+        };
+
+        let counts = ReconcileCounts {
+            completed,
+            failed,
+            sweeps: bursts as u64,
+        };
+
+        let throughput = if elapsed.as_secs_f64() > 0.0 {
+            completed as f64 / elapsed.as_secs_f64()
+        } else {
+            0.0
+        };
+
+        Ok(Report {
+            scenario: cfg.name.clone(),
+            config: cfg,
+            started_at: started_wall.to_rfc3339(),
+            elapsed_seconds: elapsed.as_secs_f64(),
+            reconciles: counts,
+            // No per-call latency in webhook mode; we measure e2e
+            // separately. Leave as an empty stats struct.
+            latency_us: LatencyStats::from_micros(Vec::new()),
+            memory,
+            throughput_per_second: throughput,
+            webhook_latency_ms: Some(webhook_stats),
+        })
     }
 }

@@ -56,3 +56,10 @@ bench-budget:
       --scenario crates/synchrotron-bench/scenarios/mem-1k.yaml \
       --max-rss-kb-per-app 130 \
       --out reports/mem-budget.json
+
+# y0v.4 webhook→sync p95 budget guard. Target <5000 ms.
+bench-webhook:
+    cargo run --release -p synchrotron-bench -- \
+      --scenario crates/synchrotron-bench/scenarios/webhook-burst.yaml \
+      --max-webhook-p95-ms 5000 \
+      --out reports/webhook-budget.json

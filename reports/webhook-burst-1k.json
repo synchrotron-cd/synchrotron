@@ -1,0 +1,52 @@
+{
+  "scenario": "webhook-burst-1k",
+  "config": {
+    "name": "webhook-burst-1k",
+    "apps": 1000,
+    "manifests_per_app": 25,
+    "clusters": 1,
+    "drift_ratio": 0.1,
+    "iterations": null,
+    "duration_seconds": null,
+    "warmup_sweeps": 1,
+    "concurrency": 64,
+    "webhook_bursts": 10,
+    "webhook_warmup_bursts": 1
+  },
+  "started_at": "2026-05-07T03:53:46.717242095+00:00",
+  "elapsed_seconds": 1.071266768,
+  "reconciles": {
+    "completed": 10000,
+    "failed": 0,
+    "sweeps": 10
+  },
+  "latency_us": {
+    "samples": 0,
+    "min": 0,
+    "p50": 0,
+    "p95": 0,
+    "p99": 0,
+    "max": 0,
+    "mean": 0
+  },
+  "memory": {
+    "peak_rss_bytes": 96686080,
+    "final_rss_bytes": 96686080,
+    "samples": [
+      {
+        "t_seconds": 0.071459221,
+        "rss_bytes": 96686080
+      }
+    ]
+  },
+  "throughput_per_second": 9334.743033865865,
+  "webhook_latency_ms": {
+    "samples": 10000,
+    "min": 1,
+    "p50": 6,
+    "p95": 10,
+    "p99": 10,
+    "max": 10,
+    "mean": 6
+  }
+}

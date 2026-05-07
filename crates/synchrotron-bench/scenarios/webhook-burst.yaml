@@ -1,0 +1,14 @@
+# y0v.4 acceptance scenario: end-to-end webhook→sync latency.
+# Each burst publishes one WebhookTriggered event that fans out to
+# every app via the synthetic AppResolver. Per-app latency =
+# SyncOutcome timestamp − WebhookTriggered timestamp.
+#
+# Target: p95 < 5000 ms (5s).
+name: webhook-burst-1k
+apps: 1000
+manifests_per_app: 25
+clusters: 1
+drift_ratio: 0.1
+webhook_bursts: 10
+webhook_warmup_bursts: 1
+concurrency: 64
