@@ -39,10 +39,7 @@ impl SyntheticState {
             for entry in l.iter_mut().take(drift_count) {
                 let mut v = entry.body.value().clone();
                 if let Some(map) = v.as_mapping_mut() {
-                    map.insert(
-                        Value::String("data".into()),
-                        Value::String("drift".into()),
-                    );
+                    map.insert(Value::String("data".into()), Value::String("drift".into()));
                 }
                 entry.body = v.into();
             }
@@ -68,7 +65,10 @@ fn configmap(name: &str, data_value: &str) -> Manifest {
     // Build the body directly (no YAML parse) — at 10k×25 manifests
     // construction time matters.
     let mut data = serde_yaml_ng::Mapping::new();
-    data.insert(Value::String("key".into()), Value::String(data_value.into()));
+    data.insert(
+        Value::String("key".into()),
+        Value::String(data_value.into()),
+    );
 
     let mut metadata = serde_yaml_ng::Mapping::new();
     metadata.insert(Value::String("name".into()), Value::String(name.into()));
@@ -78,8 +78,14 @@ fn configmap(name: &str, data_value: &str) -> Manifest {
     );
 
     let mut body = serde_yaml_ng::Mapping::new();
-    body.insert(Value::String("apiVersion".into()), Value::String("v1".into()));
-    body.insert(Value::String("kind".into()), Value::String("ConfigMap".into()));
+    body.insert(
+        Value::String("apiVersion".into()),
+        Value::String("v1".into()),
+    );
+    body.insert(
+        Value::String("kind".into()),
+        Value::String("ConfigMap".into()),
+    );
     body.insert(Value::String("metadata".into()), Value::Mapping(metadata));
     body.insert(Value::String("data".into()), Value::Mapping(data));
 
@@ -109,11 +115,7 @@ impl DesiredSource for SyntheticDesired {
 pub struct SyntheticLive(pub Arc<SyntheticState>);
 
 impl LiveSource for SyntheticLive {
-    fn live(
-        &self,
-        app: &AppName,
-        _cluster: &ClusterName,
-    ) -> Result<Arc<[Manifest]>, SourceError> {
+    fn live(&self, app: &AppName, _cluster: &ClusterName) -> Result<Arc<[Manifest]>, SourceError> {
         self.0.live.get(app).cloned().ok_or(SourceError::NotFound)
     }
 }

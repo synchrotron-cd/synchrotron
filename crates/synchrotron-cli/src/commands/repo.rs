@@ -43,11 +43,26 @@ pub struct UpdateArgs {
 }
 
 const REPO_COLUMNS: &[Column] = &[
-    Column { header: "NAME", path: "name" },
-    Column { header: "URL", path: "url" },
-    Column { header: "BRANCH", path: "branch" },
-    Column { header: "SECRET", path: "credentials_secret_ref" },
-    Column { header: "PASSWORD", path: "has_password" },
+    Column {
+        header: "NAME",
+        path: "name",
+    },
+    Column {
+        header: "URL",
+        path: "url",
+    },
+    Column {
+        header: "BRANCH",
+        path: "branch",
+    },
+    Column {
+        header: "SECRET",
+        path: "credentials_secret_ref",
+    },
+    Column {
+        header: "PASSWORD",
+        path: "has_password",
+    },
 ];
 
 pub async fn run(client: &SynchrotronClient, format: OutputFormat, cmd: RepoCmd) -> Result<()> {
@@ -64,18 +79,32 @@ pub async fn run(client: &SynchrotronClient, format: OutputFormat, cmd: RepoCmd)
             let mut body = serde_json::Map::new();
             body.insert("name".into(), json!(a.name));
             body.insert("url".into(), json!(a.url));
-            if let Some(x) = a.branch { body.insert("branch".into(), json!(x)); }
-            if let Some(x) = a.credentials_secret_ref { body.insert("credentials_secret_ref".into(), json!(x)); }
-            if let Some(x) = a.password { body.insert("password".into(), json!(x)); }
+            if let Some(x) = a.branch {
+                body.insert("branch".into(), json!(x));
+            }
+            if let Some(x) = a.credentials_secret_ref {
+                body.insert("credentials_secret_ref".into(), json!(x));
+            }
+            if let Some(x) = a.password {
+                body.insert("password".into(), json!(x));
+            }
             let v = client.create_repo(json!(body)).await?;
             output::print(format, &v, REPO_COLUMNS)
         }
         RepoCmd::Update(a) => {
             let mut body = serde_json::Map::new();
-            if let Some(x) = a.url { body.insert("url".into(), json!(x)); }
-            if let Some(x) = a.branch { body.insert("branch".into(), json!(x)); }
-            if let Some(x) = a.credentials_secret_ref { body.insert("credentials_secret_ref".into(), json!(x)); }
-            if let Some(x) = a.password { body.insert("password".into(), json!(x)); }
+            if let Some(x) = a.url {
+                body.insert("url".into(), json!(x));
+            }
+            if let Some(x) = a.branch {
+                body.insert("branch".into(), json!(x));
+            }
+            if let Some(x) = a.credentials_secret_ref {
+                body.insert("credentials_secret_ref".into(), json!(x));
+            }
+            if let Some(x) = a.password {
+                body.insert("password".into(), json!(x));
+            }
             let v = client.update_repo(&a.name, json!(body)).await?;
             output::print(format, &v, REPO_COLUMNS)
         }

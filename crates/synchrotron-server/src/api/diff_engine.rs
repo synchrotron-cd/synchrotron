@@ -160,9 +160,8 @@ impl DiffEngine for PlannerDiffEngine {
 }
 
 fn find_manifest<'a>(set: &'a [Manifest], r: &ResourceRef) -> Option<&'a Manifest> {
-    set.iter().find(|m| {
-        m.gvk == r.gvk && m.namespace == r.namespace && m.name == r.name
-    })
+    set.iter()
+        .find(|m| m.gvk == r.gvk && m.namespace == r.namespace && m.name == r.name)
 }
 
 fn action_str(a: PlannedAction) -> &'static str {
@@ -298,7 +297,9 @@ mod tests {
         assert_eq!(e.kind, "ConfigMap");
         let changes = &e.changes;
         assert!(
-            changes.iter().any(|c| c.op == "modified" && c.path.contains("marker")),
+            changes
+                .iter()
+                .any(|c| c.op == "modified" && c.path.contains("marker")),
             "expected a modified change on data.marker; got {changes:?}"
         );
     }

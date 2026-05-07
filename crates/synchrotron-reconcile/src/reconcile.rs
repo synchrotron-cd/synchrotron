@@ -58,8 +58,7 @@ pub trait DesiredSource: Send + Sync {
 
 pub trait LiveSource: Send + Sync {
     /// See [`DesiredSource::desired`]; same shared-buffer rationale.
-    fn live(&self, app: &AppName, cluster: &ClusterName)
-        -> Result<Arc<[Manifest]>, SourceError>;
+    fn live(&self, app: &AppName, cluster: &ClusterName) -> Result<Arc<[Manifest]>, SourceError>;
 }
 
 /// Outcome of a single reconcile pass.

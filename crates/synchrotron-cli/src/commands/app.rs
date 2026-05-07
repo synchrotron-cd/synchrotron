@@ -56,20 +56,53 @@ pub struct UpdateArgs {
 }
 
 const APP_COLUMNS: &[Column] = &[
-    Column { header: "NAME", path: "name" },
-    Column { header: "NAMESPACE", path: "namespace" },
-    Column { header: "DEST", path: "dest_cluster" },
-    Column { header: "REVISION", path: "target_revision" },
-    Column { header: "SYNC", path: "sync_status" },
-    Column { header: "HEALTH", path: "health_status" },
+    Column {
+        header: "NAME",
+        path: "name",
+    },
+    Column {
+        header: "NAMESPACE",
+        path: "namespace",
+    },
+    Column {
+        header: "DEST",
+        path: "dest_cluster",
+    },
+    Column {
+        header: "REVISION",
+        path: "target_revision",
+    },
+    Column {
+        header: "SYNC",
+        path: "sync_status",
+    },
+    Column {
+        header: "HEALTH",
+        path: "health_status",
+    },
 ];
 
 const HISTORY_COLUMNS: &[Column] = &[
-    Column { header: "ID", path: "id" },
-    Column { header: "REVISION", path: "revision" },
-    Column { header: "STATUS", path: "status" },
-    Column { header: "TRIGGER", path: "trigger" },
-    Column { header: "STARTED", path: "started_at" },
+    Column {
+        header: "ID",
+        path: "id",
+    },
+    Column {
+        header: "REVISION",
+        path: "revision",
+    },
+    Column {
+        header: "STATUS",
+        path: "status",
+    },
+    Column {
+        header: "TRIGGER",
+        path: "trigger",
+    },
+    Column {
+        header: "STARTED",
+        path: "started_at",
+    },
 ];
 
 pub async fn run(client: &SynchrotronClient, format: OutputFormat, cmd: AppCmd) -> Result<()> {
@@ -97,12 +130,24 @@ pub async fn run(client: &SynchrotronClient, format: OutputFormat, cmd: AppCmd) 
         }
         AppCmd::Update(a) => {
             let mut body = serde_json::Map::new();
-            if let Some(x) = a.namespace { body.insert("namespace".into(), json!(x)); }
-            if let Some(x) = a.repo_url { body.insert("repo_url".into(), json!(x)); }
-            if let Some(x) = a.path { body.insert("path".into(), json!(x)); }
-            if let Some(x) = a.target_revision { body.insert("target_revision".into(), json!(x)); }
-            if let Some(x) = a.dest_cluster { body.insert("dest_cluster".into(), json!(x)); }
-            if let Some(x) = a.dest_namespace { body.insert("dest_namespace".into(), json!(x)); }
+            if let Some(x) = a.namespace {
+                body.insert("namespace".into(), json!(x));
+            }
+            if let Some(x) = a.repo_url {
+                body.insert("repo_url".into(), json!(x));
+            }
+            if let Some(x) = a.path {
+                body.insert("path".into(), json!(x));
+            }
+            if let Some(x) = a.target_revision {
+                body.insert("target_revision".into(), json!(x));
+            }
+            if let Some(x) = a.dest_cluster {
+                body.insert("dest_cluster".into(), json!(x));
+            }
+            if let Some(x) = a.dest_namespace {
+                body.insert("dest_namespace".into(), json!(x));
+            }
             let v = client.update_app(&a.name, json!(body)).await?;
             output::print(format, &v, APP_COLUMNS)
         }

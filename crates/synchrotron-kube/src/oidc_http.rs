@@ -81,10 +81,7 @@ impl Default for ReqwestRefresherConfig {
 /// subsystems) is encouraged — the client owns a connection pool.
 ///
 /// Discovery results are cached internally per issuer URL.
-pub fn reqwest_refresher(
-    client: reqwest::Client,
-    config: ReqwestRefresherConfig,
-) -> Refresher {
+pub fn reqwest_refresher(client: reqwest::Client, config: ReqwestRefresherConfig) -> Refresher {
     let inner = Arc::new(Inner {
         client,
         config,
@@ -140,14 +137,11 @@ impl Inner {
         let resp = self
             .post_with_retry(&endpoint, &cfg, &current_refresh)
             .await?;
-        let id_token = resp
-            .id_token
-            .or(resp.access_token)
-            .ok_or_else(|| {
-                KubeError::OidcRefresh(
-                    "OIDC token response missing both id_token and access_token".into(),
-                )
-            })?;
+        let id_token = resp.id_token.or(resp.access_token).ok_or_else(|| {
+            KubeError::OidcRefresh(
+                "OIDC token response missing both id_token and access_token".into(),
+            )
+        })?;
         let lifetime = resp.expires_in.unwrap_or(300);
         let expires_at = now + Duration::from_secs(lifetime);
         let refresh_token = resp.refresh_token.unwrap_or(current_refresh);
@@ -173,9 +167,7 @@ impl Inner {
             .header("Accept", "application/json")
             .send()
             .await
-            .map_err(|e| {
-                KubeError::OidcRefresh(format!("OIDC discovery GET {url} failed: {e}"))
-            })?;
+            .map_err(|e| KubeError::OidcRefresh(format!("OIDC discovery GET {url} failed: {e}")))?;
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
@@ -185,7 +177,9 @@ impl Inner {
             )));
         }
         let doc: DiscoveryDoc = resp.json().await.map_err(|e| {
-            KubeError::OidcRefresh(format!("OIDC discovery body not JSON/missing token_endpoint: {e}"))
+            KubeError::OidcRefresh(format!(
+                "OIDC discovery body not JSON/missing token_endpoint: {e}"
+            ))
         })?;
         debug!(issuer, token_endpoint = %doc.token_endpoint, "OIDC discovery cached");
         self.discovery
@@ -225,9 +219,7 @@ impl Inner {
                     let status = r.status();
                     if status.is_success() {
                         let body: TokenResponse = r.json().await.map_err(|e| {
-                            KubeError::OidcRefresh(format!(
-                                "OIDC token response not JSON: {e}"
-                            ))
+                            KubeError::OidcRefresh(format!("OIDC token response not JSON: {e}"))
                         })?;
                         return Ok(body);
                     }
@@ -270,7 +262,9 @@ mod tests {
 
     #[test]
     fn retryable_status_classification() {
-        assert!(is_retryable_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR));
+        assert!(is_retryable_status(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR
+        ));
         assert!(is_retryable_status(reqwest::StatusCode::BAD_GATEWAY));
         assert!(is_retryable_status(reqwest::StatusCode::TOO_MANY_REQUESTS));
         assert!(!is_retryable_status(reqwest::StatusCode::BAD_REQUEST));

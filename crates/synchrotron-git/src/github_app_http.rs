@@ -167,9 +167,7 @@ fn is_retryable_status(status: reqwest::StatusCode) -> bool {
 
 fn parse_rfc3339(s: &str) -> Result<SystemTime> {
     let dt = chrono::DateTime::parse_from_rfc3339(s).map_err(|e| {
-        GitError::InvalidState(format!(
-            "github expires_at not RFC3339 (`{s}`): {e}"
-        ))
+        GitError::InvalidState(format!("github expires_at not RFC3339 (`{s}`): {e}"))
     })?;
     Ok(SystemTime::from(dt.with_timezone(&chrono::Utc)))
 }
@@ -193,7 +191,9 @@ mod tests {
 
     #[test]
     fn retryable_status_classification() {
-        assert!(is_retryable_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR));
+        assert!(is_retryable_status(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR
+        ));
         assert!(is_retryable_status(reqwest::StatusCode::BAD_GATEWAY));
         assert!(is_retryable_status(reqwest::StatusCode::TOO_MANY_REQUESTS));
         assert!(!is_retryable_status(reqwest::StatusCode::UNAUTHORIZED));

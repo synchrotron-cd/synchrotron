@@ -182,18 +182,14 @@ fn build_test_repo(base: &Path) -> PathBuf {
     run(Command::new("git").args(["-C", work_str, "add", "README"]));
     run(Command::new("git").args(["-C", work_str, "commit", "-q", "-m", "init"]));
     let bare = base.join("repo.git");
-    run(Command::new("git").args([
-        "clone",
-        "-q",
-        "--bare",
-        work_str,
-        bare.to_str().unwrap(),
-    ]));
+    run(Command::new("git").args(["clone", "-q", "--bare", work_str, bare.to_str().unwrap()]));
     bare
 }
 
 fn run(cmd: &mut Command) {
-    let out = cmd.output().unwrap_or_else(|e| panic!("spawn: {cmd:?}: {e}"));
+    let out = cmd
+        .output()
+        .unwrap_or_else(|e| panic!("spawn: {cmd:?}: {e}"));
     assert!(
         out.status.success(),
         "command failed ({:?}): {:?}\nstdout: {}\nstderr: {}",
@@ -226,11 +222,9 @@ fn whoami() -> String {
     std::env::var("USER")
         .or_else(|_| std::env::var("LOGNAME"))
         .or_else(|_| {
-            String::from_utf8(
-                Command::new("id").arg("-un").output().unwrap().stdout,
-            )
-            .map(|s| s.trim().to_string())
-            .map_err(|_| std::env::VarError::NotPresent)
+            String::from_utf8(Command::new("id").arg("-un").output().unwrap().stdout)
+                .map(|s| s.trim().to_string())
+                .map_err(|_| std::env::VarError::NotPresent)
         })
         .expect("could not determine current user")
 }

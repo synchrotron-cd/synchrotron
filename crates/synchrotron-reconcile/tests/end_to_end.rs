@@ -73,11 +73,7 @@ impl StaticLive {
     }
 }
 impl LiveSource for StaticLive {
-    fn live(
-        &self,
-        app: &AppName,
-        cluster: &ClusterName,
-    ) -> Result<Arc<[Manifest]>, SourceError> {
+    fn live(&self, app: &AppName, cluster: &ClusterName) -> Result<Arc<[Manifest]>, SourceError> {
         self.by_key
             .lock()
             .unwrap()

@@ -8,8 +8,14 @@ pub async fn run(client: &SynchrotronClient, format: OutputFormat) -> Result<()>
         format,
         &value,
         &[
-            Column { header: "STATUS", path: "status" },
-            Column { header: "VERSION", path: "version" },
+            Column {
+                header: "STATUS",
+                path: "status",
+            },
+            Column {
+                header: "VERSION",
+                path: "version",
+            },
         ],
     )
 }

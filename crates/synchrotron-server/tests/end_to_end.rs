@@ -96,10 +96,7 @@ impl Recorder {
     }
 }
 
-async fn recorder_handler(
-    State(rec): State<Recorder>,
-    body: axum::body::Bytes,
-) -> StatusCode {
+async fn recorder_handler(State(rec): State<Recorder>, body: axum::body::Bytes) -> StatusCode {
     rec.inner.lock().unwrap().push(body.to_vec());
     StatusCode::OK
 }
@@ -117,10 +114,7 @@ async fn spawn_recorder() -> (String, Recorder) {
     (format!("http://{addr}/notify"), rec)
 }
 
-async fn make_webhook_state(
-    bus: EventBus,
-    secret: &[u8],
-) -> (WebhookState, RepoId) {
+async fn make_webhook_state(bus: EventBus, secret: &[u8]) -> (WebhookState, RepoId) {
     let orch = Arc::new(Orchestrator::new(long_cfg()));
     let repo = Repo::new(RepoUrl(REPO_URL.into()), "main", Credentials::None);
     let id = repo.id.clone();
@@ -213,8 +207,7 @@ async fn push_event_triggers_reconcile_and_fires_notification() {
     assert_eq!(metrics.sent(), 1, "notifier never POSTed");
     assert_eq!(rec.count(), 1, "recorder did not see the POST");
 
-    let body: serde_json::Value =
-        serde_json::from_slice(&rec.last().unwrap()).unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&rec.last().unwrap()).unwrap();
     assert_eq!(body["kind"], "sync_outcome");
     assert_eq!(body["app"], APP_NAME);
     assert_eq!(body["cluster"], CLUSTER_NAME);

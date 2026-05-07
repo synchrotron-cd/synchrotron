@@ -18,10 +18,10 @@ use tower_http::trace::TraceLayer;
 pub use apps::AppsState;
 pub use clusters::ClustersState;
 pub use diff_engine::{DiffEngine, DiffEngineError, DiffEntry, FieldChange, PlannerDiffEngine};
-pub use repos::ReposState;
 pub use errors::{ApiError, ApiErrorBody, ApiErrorEnvelope, ErrorCode};
 pub use health::{probes_router, ComponentState, HealthRegistry, ReadinessGate};
 pub use openapi::ApiDoc;
+pub use repos::ReposState;
 pub use watch::{AppWatcher, WatchState};
 pub use webhooks::{WebhookSecrets, WebhookState};
 

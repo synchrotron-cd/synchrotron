@@ -126,10 +126,7 @@ pub struct ConnectivityCheckResponse {
 
 pub fn router(state: ClustersState) -> Router {
     Router::new()
-        .route(
-            "/api/v1/clusters",
-            get(list_clusters).post(create_cluster),
-        )
+        .route("/api/v1/clusters", get(list_clusters).post(create_cluster))
         .route(
             "/api/v1/clusters/{name}",
             get(get_cluster).put(update_cluster).delete(delete_cluster),

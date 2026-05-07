@@ -70,20 +70,26 @@ async fn app_lifecycle_create_list_get_history_delete() {
     let (ok, _, stderr) = run_cli(
         &server,
         &[
-            "app", "create",
-            "--name", "web",
-            "--namespace", "argocd",
-            "--repo-url", "https://example.com/r.git",
-            "--path", "manifests",
-            "--dest-cluster", "in-cluster",
-            "--dest-namespace", "default",
+            "app",
+            "create",
+            "--name",
+            "web",
+            "--namespace",
+            "argocd",
+            "--repo-url",
+            "https://example.com/r.git",
+            "--path",
+            "manifests",
+            "--dest-cluster",
+            "in-cluster",
+            "--dest-namespace",
+            "default",
         ],
     );
     assert!(ok, "create failed: {stderr}");
 
     // list (json) — confirm web is in there
-    let (ok, stdout, stderr) =
-        run_cli(&server, &["--output", "json", "app", "list"]);
+    let (ok, stdout, stderr) = run_cli(&server, &["--output", "json", "app", "list"]);
     assert!(ok, "list failed: {stderr}");
     let json: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
     let apps = json["apps"].as_array().expect("apps array");
@@ -97,14 +103,12 @@ async fn app_lifecycle_create_list_get_history_delete() {
     assert!(stdout.contains("web"), "table missing row: {stdout}");
 
     // get
-    let (ok, stdout, _) =
-        run_cli(&server, &["--output", "yaml", "app", "get", "web"]);
+    let (ok, stdout, _) = run_cli(&server, &["--output", "yaml", "app", "get", "web"]);
     assert!(ok);
     assert!(stdout.contains("name: web"), "yaml missing field: {stdout}");
 
     // history (empty, but the endpoint must work)
-    let (ok, stdout, _) =
-        run_cli(&server, &["--output", "json", "app", "history", "web"]);
+    let (ok, stdout, _) = run_cli(&server, &["--output", "json", "app", "history", "web"]);
     assert!(ok);
     let json: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
     assert_eq!(json["app"], "web");
@@ -114,8 +118,7 @@ async fn app_lifecycle_create_list_get_history_delete() {
     let (ok, _, _) = run_cli(&server, &["app", "delete", "web"]);
     assert!(ok);
 
-    let (ok, stdout, _) =
-        run_cli(&server, &["--output", "json", "app", "list"]);
+    let (ok, stdout, _) = run_cli(&server, &["--output", "json", "app", "list"]);
     assert!(ok);
     let json: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
     assert!(json["apps"].as_array().unwrap().is_empty());
@@ -129,17 +132,23 @@ async fn sync_emits_accepted_envelope() {
     let _ = run_cli(
         &server,
         &[
-            "app", "create",
-            "--name", "api",
-            "--namespace", "argocd",
-            "--repo-url", "https://example.com/r.git",
-            "--path", ".",
-            "--dest-cluster", "in-cluster",
-            "--dest-namespace", "default",
+            "app",
+            "create",
+            "--name",
+            "api",
+            "--namespace",
+            "argocd",
+            "--repo-url",
+            "https://example.com/r.git",
+            "--path",
+            ".",
+            "--dest-cluster",
+            "in-cluster",
+            "--dest-namespace",
+            "default",
         ],
     );
-    let (ok, stdout, _) =
-        run_cli(&server, &["--output", "json", "sync", "api"]);
+    let (ok, stdout, _) = run_cli(&server, &["--output", "json", "sync", "api"]);
     assert!(ok);
     let json: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
     assert_eq!(json["app"], "api");
@@ -153,8 +162,7 @@ async fn sync_emits_accepted_envelope() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn nonexistent_app_returns_nonzero_with_server_message() {
     let (server, handle) = spawn_server().await;
-    let (ok, _stdout, stderr) =
-        run_cli(&server, &["app", "get", "ghost"]);
+    let (ok, _stdout, stderr) = run_cli(&server, &["app", "get", "ghost"]);
     assert!(!ok, "expected failure for missing app");
     assert!(
         stderr.contains("not found") || stderr.contains("ghost"),
@@ -169,13 +177,20 @@ async fn watch_streams_events_and_exits_on_close() {
     let _ = run_cli(
         &server,
         &[
-            "app", "create",
-            "--name", "web",
-            "--namespace", "argocd",
-            "--repo-url", "https://example.com/r.git",
-            "--path", ".",
-            "--dest-cluster", "in-cluster",
-            "--dest-namespace", "default",
+            "app",
+            "create",
+            "--name",
+            "web",
+            "--namespace",
+            "argocd",
+            "--repo-url",
+            "https://example.com/r.git",
+            "--path",
+            ".",
+            "--dest-cluster",
+            "in-cluster",
+            "--dest-namespace",
+            "default",
         ],
     );
 

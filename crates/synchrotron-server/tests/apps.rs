@@ -257,11 +257,7 @@ struct StubEngine {
 }
 
 impl DiffEngine for StubEngine {
-    fn compute(
-        &self,
-        _: &AppName,
-        _: &ClusterName,
-    ) -> Result<Vec<DiffEntry>, DiffEngineError> {
+    fn compute(&self, _: &AppName, _: &ClusterName) -> Result<Vec<DiffEntry>, DiffEngineError> {
         Ok(self.entries.clone())
     }
 }
@@ -269,11 +265,7 @@ impl DiffEngine for StubEngine {
 struct FailingEngine(DiffEngineError);
 
 impl DiffEngine for FailingEngine {
-    fn compute(
-        &self,
-        _: &AppName,
-        _: &ClusterName,
-    ) -> Result<Vec<DiffEntry>, DiffEngineError> {
+    fn compute(&self, _: &AppName, _: &ClusterName) -> Result<Vec<DiffEntry>, DiffEngineError> {
         // Clone DiffEngineError variants by re-creating equivalent
         // values — the type doesn't derive Clone.
         Err(match &self.0 {

@@ -15,9 +15,7 @@ use serde_json::json;
 use tokio::net::TcpListener;
 
 use synchrotron_kube::oidc::{OidcConfig, OidcToken, OidcTokenCache};
-use synchrotron_kube::oidc_http::{
-    default_refresher, reqwest_refresher, ReqwestRefresherConfig,
-};
+use synchrotron_kube::oidc_http::{default_refresher, reqwest_refresher, ReqwestRefresherConfig};
 
 #[derive(Default)]
 struct Recorder {
@@ -168,7 +166,9 @@ async fn happy_path_discovers_and_exchanges() {
     let refresher = default_refresher(fast_config()).unwrap();
 
     let now = SystemTime::now();
-    let token = invoke(&refresher, cfg_for(&base), "refresh_v1").await.unwrap();
+    let token = invoke(&refresher, cfg_for(&base), "refresh_v1")
+        .await
+        .unwrap();
     assert_eq!(token.id_token, "id_v1");
     assert_eq!(token.refresh_token, "refresh_v2");
     assert!(token.expires_at >= now + Duration::from_secs(3500));
@@ -177,10 +177,22 @@ async fn happy_path_discovers_and_exchanges() {
     assert_eq!(g.discovery_calls, 1);
     assert_eq!(g.token_calls.len(), 1);
     let call = &g.token_calls[0];
-    assert_eq!(call.form.get("grant_type").map(String::as_str), Some("refresh_token"));
-    assert_eq!(call.form.get("refresh_token").map(String::as_str), Some("refresh_v1"));
-    assert_eq!(call.form.get("client_id").map(String::as_str), Some("test-client"));
-    assert_eq!(call.form.get("client_secret").map(String::as_str), Some("test-secret"));
+    assert_eq!(
+        call.form.get("grant_type").map(String::as_str),
+        Some("refresh_token")
+    );
+    assert_eq!(
+        call.form.get("refresh_token").map(String::as_str),
+        Some("refresh_v1")
+    );
+    assert_eq!(
+        call.form.get("client_id").map(String::as_str),
+        Some("test-client")
+    );
+    assert_eq!(
+        call.form.get("client_secret").map(String::as_str),
+        Some("test-secret")
+    );
     assert_eq!(call.user_agent.as_deref(), Some("synchrotron-cd-test"));
     assert_eq!(call.accept.as_deref(), Some("application/json"));
 }
@@ -204,7 +216,8 @@ async fn retries_on_5xx_then_succeeds() {
     let state = AppState::default();
     {
         let mut g = state.inner.lock().unwrap();
-        g.token_responses.push(MockTokenResponse::Status(503, "busy"));
+        g.token_responses
+            .push(MockTokenResponse::Status(503, "busy"));
         g.token_responses.push(MockTokenResponse::Status(502, "gw"));
         g.token_responses.push(MockTokenResponse::Ok {
             id_token: "id_after_retry".into(),
@@ -225,7 +238,8 @@ async fn retries_on_429() {
     let state = AppState::default();
     {
         let mut g = state.inner.lock().unwrap();
-        g.token_responses.push(MockTokenResponse::Status(429, "slow down"));
+        g.token_responses
+            .push(MockTokenResponse::Status(429, "slow down"));
         g.token_responses.push(MockTokenResponse::Ok {
             id_token: "id_after_429".into(),
             refresh_token: Some("rt2".into()),
@@ -255,7 +269,10 @@ async fn does_not_retry_on_invalid_grant() {
     let err = invoke(&refresher, cfg_for(&base), "rt1").await.unwrap_err();
     let msg = err.to_string();
     assert!(msg.contains("400"), "want 400 in error, got: {msg}");
-    assert!(msg.contains("invalid_grant"), "want body snippet, got: {msg}");
+    assert!(
+        msg.contains("invalid_grant"),
+        "want body snippet, got: {msg}"
+    );
     assert_eq!(state.inner.lock().unwrap().token_calls.len(), 1);
 }
 
@@ -295,7 +312,9 @@ async fn preserves_refresh_token_when_response_omits_it() {
     let base = spawn_mock(state.clone()).await;
     let refresher = default_refresher(fast_config()).unwrap();
 
-    let token = invoke(&refresher, cfg_for(&base), "original_rt").await.unwrap();
+    let token = invoke(&refresher, cfg_for(&base), "original_rt")
+        .await
+        .unwrap();
     assert_eq!(
         token.refresh_token, "original_rt",
         "RFC 6749 §6: preserve current refresh token when response omits it"
@@ -345,12 +364,7 @@ async fn integrates_with_oidc_token_cache() {
         refresh_token: "rt_seed".into(),
         expires_at: SystemTime::now() - Duration::from_secs(60), // already stale
     };
-    let cache = OidcTokenCache::new(
-        cfg_for(&base),
-        seed,
-        refresher,
-        Duration::from_secs(30),
-    );
+    let cache = OidcTokenCache::new(cfg_for(&base), seed, refresher, Duration::from_secs(30));
 
     let token = cache.get().await.unwrap();
     assert_eq!(token.id_token, "id_refreshed");

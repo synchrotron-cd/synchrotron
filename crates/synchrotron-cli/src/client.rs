@@ -74,7 +74,8 @@ impl SynchrotronClient {
             .await
     }
     pub async fn create_app(&self, body: Value) -> Result<Value> {
-        self.json_call(Method::POST, "/api/v1/apps", Some(body)).await
+        self.json_call(Method::POST, "/api/v1/apps", Some(body))
+            .await
     }
     pub async fn update_app(&self, name: &str, body: Value) -> Result<Value> {
         self.json_call(Method::PUT, &format!("/api/v1/apps/{name}"), Some(body))
@@ -125,12 +126,8 @@ impl SynchrotronClient {
             .await
     }
     pub async fn update_cluster(&self, name: &str, body: Value) -> Result<Value> {
-        self.json_call(
-            Method::PUT,
-            &format!("/api/v1/clusters/{name}"),
-            Some(body),
-        )
-        .await
+        self.json_call(Method::PUT, &format!("/api/v1/clusters/{name}"), Some(body))
+            .await
     }
     pub async fn delete_cluster(&self, name: &str) -> Result<()> {
         let resp = self
@@ -213,9 +210,7 @@ pub struct SseMessage {
 /// Streaming SSE parser. Builds messages line-by-line and emits one
 /// per blank-line delimiter, per the EventSource spec.
 pub struct SseStream {
-    body: std::pin::Pin<
-        Box<dyn futures_util::Stream<Item = reqwest::Result<bytes::Bytes>> + Send>,
-    >,
+    body: std::pin::Pin<Box<dyn futures_util::Stream<Item = reqwest::Result<bytes::Bytes>> + Send>>,
     buf: String,
     pending: SseMessage,
 }

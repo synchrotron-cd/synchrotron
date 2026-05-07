@@ -222,7 +222,13 @@ fn build_callbacks(
         select_credential(&credentials, username_from_url, allowed)
     });
     callbacks.certificate_check(move |cert, host| {
-        verify_certificate(cert, host, &host_verifier, port_override, &last_verifier_err)
+        verify_certificate(
+            cert,
+            host,
+            &host_verifier,
+            port_override,
+            &last_verifier_err,
+        )
     });
     callbacks
 }
@@ -291,7 +297,10 @@ fn verify_certificate(
 fn ssh_port_from_url(url: &str) -> Option<u16> {
     let rest = url.strip_prefix("ssh://")?;
     let authority = rest.split('/').next()?;
-    let host_port = authority.rsplit_once('@').map(|(_, h)| h).unwrap_or(authority);
+    let host_port = authority
+        .rsplit_once('@')
+        .map(|(_, h)| h)
+        .unwrap_or(authority);
     // IPv6 literal: `[::1]:port`
     if let Some(rest) = host_port.strip_prefix('[') {
         let (_, p) = rest.split_once("]:")?;
@@ -475,9 +484,15 @@ mod tests {
 
     #[test]
     fn ssh_port_from_url_parses_explicit_port() {
-        assert_eq!(ssh_port_from_url("ssh://git@host:2222/repo.git"), Some(2222));
+        assert_eq!(
+            ssh_port_from_url("ssh://git@host:2222/repo.git"),
+            Some(2222)
+        );
         assert_eq!(ssh_port_from_url("ssh://host:22/r"), Some(22));
-        assert_eq!(ssh_port_from_url("ssh://user@127.0.0.1:65535/p"), Some(65535));
+        assert_eq!(
+            ssh_port_from_url("ssh://user@127.0.0.1:65535/p"),
+            Some(65535)
+        );
     }
 
     #[test]

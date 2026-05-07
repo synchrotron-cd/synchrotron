@@ -11,7 +11,7 @@ use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use synchrotron_core::db::Database;
 use synchrotron_core::{EventBus, SystemEvent};
-use synchrotron_server::api::{self, AppsState, AppWatcher, WatchState};
+use synchrotron_server::api::{self, AppWatcher, AppsState, WatchState};
 use synchrotron_types::{AppName, ClusterName};
 use tokio::time::timeout;
 use tower::ServiceExt;

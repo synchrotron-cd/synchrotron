@@ -324,7 +324,12 @@ mod tests {
             self.inner.lock().unwrap().calls.len()
         }
         fn last_body(&self) -> Option<Vec<u8>> {
-            self.inner.lock().unwrap().calls.last().map(|c| c.body.clone())
+            self.inner
+                .lock()
+                .unwrap()
+                .calls
+                .last()
+                .map(|c| c.body.clone())
         }
         fn last_signature(&self) -> Option<String> {
             self.inner
@@ -443,10 +448,7 @@ mod tests {
         rec.push_responses(&[500, 500, 500, 500]);
         let url = spawn_test_server(rec.clone()).await;
         let mut src = StaticConfigSource::new();
-        src.insert(
-            "a",
-            NotificationConfig::new(url).with_max_attempts(3),
-        );
+        src.insert("a", NotificationConfig::new(url).with_max_attempts(3));
         let notifier = notifier_with(src);
         let cfg = notifier.config.lookup(&AppName("a".into())).unwrap();
 
@@ -490,15 +492,14 @@ mod tests {
         let url = spawn_test_server(rec.clone()).await;
         let secret = b"shhh".to_vec();
         let mut src = StaticConfigSource::new();
-        src.insert(
-            "a",
-            NotificationConfig::new(url).with_hmac(secret.clone()),
-        );
+        src.insert("a", NotificationConfig::new(url).with_hmac(secret.clone()));
         let notifier = notifier_with(src);
         let cfg = notifier.config.lookup(&AppName("a".into())).unwrap();
         let body = b"{\"x\":1}".to_vec();
 
-        notifier.deliver(&AppName("a".into()), &cfg, body.clone()).await;
+        notifier
+            .deliver(&AppName("a".into()), &cfg, body.clone())
+            .await;
 
         let sig = rec.last_signature().expect("signature header present");
         assert!(verify(&secret, &body, &sig));
@@ -515,7 +516,9 @@ mod tests {
         let notifier = notifier_with(src);
         let cfg = notifier.config.lookup(&AppName("a".into())).unwrap();
 
-        notifier.deliver(&AppName("a".into()), &cfg, b"{}".to_vec()).await;
+        notifier
+            .deliver(&AppName("a".into()), &cfg, b"{}".to_vec())
+            .await;
 
         assert!(rec.last_signature().is_none());
     }
@@ -524,8 +527,8 @@ mod tests {
     async fn skips_apps_without_config() {
         let bus = EventBus::new(16);
         let src = StaticConfigSource::new();
-        let notifier = Notifier::new(bus.clone(), Arc::new(src))
-            .with_backoff_base(Duration::from_millis(1));
+        let notifier =
+            Notifier::new(bus.clone(), Arc::new(src)).with_backoff_base(Duration::from_millis(1));
         let metrics = notifier.metrics();
         let _h = notifier.spawn();
 
@@ -550,8 +553,8 @@ mod tests {
         let bus = EventBus::new(16);
         let mut src = StaticConfigSource::new();
         src.insert("billing", cfg_for(url));
-        let notifier = Notifier::new(bus.clone(), Arc::new(src))
-            .with_backoff_base(Duration::from_millis(1));
+        let notifier =
+            Notifier::new(bus.clone(), Arc::new(src)).with_backoff_base(Duration::from_millis(1));
         let metrics = notifier.metrics();
         let _h = notifier.spawn();
 
@@ -569,8 +572,7 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
         assert_eq!(metrics.sent(), 1);
-        let body: serde_json::Value =
-            serde_json::from_slice(&rec.last_body().unwrap()).unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&rec.last_body().unwrap()).unwrap();
         assert_eq!(body["app"], "billing");
         assert_eq!(body["cluster"], "prod");
         assert_eq!(body["success"], false);

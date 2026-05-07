@@ -221,9 +221,7 @@ pub fn router(state: AppsState) -> Router {
     tag = "apps",
     responses((status = 200, description = "List of apps", body = ListAppsResponse))
 )]
-pub async fn list_apps(
-    State(state): State<AppsState>,
-) -> Result<Json<ListAppsResponse>, ApiError> {
+pub async fn list_apps(State(state): State<AppsState>) -> Result<Json<ListAppsResponse>, ApiError> {
     let apps = {
         let db = state.db.lock().unwrap();
         db.list_applications().map_err(internal_db)?
@@ -274,7 +272,11 @@ pub async fn create_app(
 
     {
         let db = state.db.lock().unwrap();
-        if db.get_application(&req.name).map_err(internal_db)?.is_some() {
+        if db
+            .get_application(&req.name)
+            .map_err(internal_db)?
+            .is_some()
+        {
             return Err(ApiError::new(
                 crate::api::errors::ErrorCode::Conflict,
                 format!("app `{}` already exists", req.name),
@@ -393,11 +395,9 @@ pub async fn sync_app(
     Path(name): Path<String>,
 ) -> Result<(StatusCode, Json<SyncAcceptedResponse>), ApiError> {
     let _ = load_app(&state, &name)?;
-    state
-        .bus
-        .publish(SystemEvent::ManualSyncRequested {
-            app: AppName(name.clone()),
-        });
+    state.bus.publish(SystemEvent::ManualSyncRequested {
+        app: AppName(name.clone()),
+    });
     Ok((
         StatusCode::ACCEPTED,
         Json(SyncAcceptedResponse {
@@ -494,11 +494,9 @@ pub async fn rollback_app(
         (rev, manifests)
     };
 
-    state
-        .bus
-        .publish(SystemEvent::ManualSyncRequested {
-            app: AppName(name.clone()),
-        });
+    state.bus.publish(SystemEvent::ManualSyncRequested {
+        app: AppName(name.clone()),
+    });
 
     Ok((
         StatusCode::ACCEPTED,

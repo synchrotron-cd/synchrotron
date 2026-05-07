@@ -15,10 +15,8 @@ use synchrotron_plugins::Manifest;
 fn deployment(name: &str, replicas: u32, env_count: usize) -> Manifest {
     let env: Vec<Value> = (0..env_count)
         .map(|i| {
-            serde_yaml_ng::from_str::<Value>(&format!(
-                "name: VAR_{i}\nvalue: \"value-{i}\"\n"
-            ))
-            .unwrap()
+            serde_yaml_ng::from_str::<Value>(&format!("name: VAR_{i}\nvalue: \"value-{i}\"\n"))
+                .unwrap()
         })
         .collect();
     let env_yaml = serde_yaml_ng::to_string(&env).unwrap();
@@ -69,7 +67,10 @@ spec:
 
 fn indent(s: &str, n: usize) -> String {
     let pad = " ".repeat(n);
-    s.lines().map(|l| format!("{pad}{l}")).collect::<Vec<_>>().join("\n")
+    s.lines()
+        .map(|l| format!("{pad}{l}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn mutate_replicas(m: &mut Manifest, new: u32) {
@@ -148,7 +149,11 @@ fn bench_diff(c: &mut Criterion) {
         );
 
         // Silence unused warnings for the mutators when env_count is small.
-        let _ = (&mut live_equal, &mut live_field_change, &mut live_listmap_change);
+        let _ = (
+            &mut live_equal,
+            &mut live_field_change,
+            &mut live_listmap_change,
+        );
     }
     group.finish();
 }

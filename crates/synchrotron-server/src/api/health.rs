@@ -80,7 +80,11 @@ impl HealthRegistry {
     }
 
     pub fn all_up(&self) -> bool {
-        self.inner.lock().unwrap().values().all(ComponentState::is_up)
+        self.inner
+            .lock()
+            .unwrap()
+            .values()
+            .all(ComponentState::is_up)
     }
 }
 

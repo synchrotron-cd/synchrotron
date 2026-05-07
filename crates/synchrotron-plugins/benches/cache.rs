@@ -92,18 +92,14 @@ fn bench_cache_put_and_evict(c: &mut Criterion) {
         }
         let payload = vec![manifest("hot", 128)];
         group.throughput(Throughput::Elements(1));
-        group.bench_with_input(
-            BenchmarkId::new("put_evict", cap),
-            &cap,
-            |b, _| {
-                let mut counter = 0u64;
-                b.iter(|| {
-                    counter = counter.wrapping_add(1);
-                    let k = key(&format!("hot-{counter}"), "helm");
-                    cache.put(black_box(k), black_box(payload.clone()));
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("put_evict", cap), &cap, |b, _| {
+            let mut counter = 0u64;
+            b.iter(|| {
+                counter = counter.wrapping_add(1);
+                let k = key(&format!("hot-{counter}"), "helm");
+                cache.put(black_box(k), black_box(payload.clone()));
+            });
+        });
     }
     group.finish();
 }

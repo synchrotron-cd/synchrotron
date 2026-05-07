@@ -18,9 +18,7 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use serde_yaml_ng::Value;
 use synchrotron_core::events::EventBus;
 use synchrotron_plugins::{Gvk, Manifest};
-use synchrotron_reconcile::{
-    DesiredSource, LiveSource, Reconciler, SourceError,
-};
+use synchrotron_reconcile::{DesiredSource, LiveSource, Reconciler, SourceError};
 use synchrotron_types::{AppName, ClusterName};
 
 struct StaticDesired {
@@ -36,11 +34,7 @@ struct StaticLive {
     by_app: HashMap<AppName, Arc<[Manifest]>>,
 }
 impl LiveSource for StaticLive {
-    fn live(
-        &self,
-        app: &AppName,
-        _cluster: &ClusterName,
-    ) -> Result<Arc<[Manifest]>, SourceError> {
+    fn live(&self, app: &AppName, _cluster: &ClusterName) -> Result<Arc<[Manifest]>, SourceError> {
         self.by_app.get(app).cloned().ok_or(SourceError::NotFound)
     }
 }
@@ -75,7 +69,11 @@ fn build(apps: usize, manifests_per_app: usize) -> (StaticDesired, StaticLive, V
         live.insert(app.clone(), arc);
         names.push(app);
     }
-    (StaticDesired { by_app: desired }, StaticLive { by_app: live }, names)
+    (
+        StaticDesired { by_app: desired },
+        StaticLive { by_app: live },
+        names,
+    )
 }
 
 fn bench_reconcile(c: &mut Criterion) {
@@ -99,8 +97,7 @@ fn bench_reconcile(c: &mut Criterion) {
                 b.iter(|| {
                     let app = &names[i % apps];
                     i = i.wrapping_add(1);
-                    let outcome =
-                        reconciler.reconcile_app(black_box(app), black_box(&cluster));
+                    let outcome = reconciler.reconcile_app(black_box(app), black_box(&cluster));
                     black_box(outcome);
                 });
             },

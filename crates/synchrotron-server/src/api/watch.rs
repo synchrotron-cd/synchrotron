@@ -122,10 +122,7 @@ impl AppWatcher {
             return Vec::new();
         };
         let lower = since.unwrap_or(0);
-        buf.iter()
-            .filter(|e| e.id > lower)
-            .cloned()
-            .collect()
+        buf.iter().filter(|e| e.id > lower).cloned().collect()
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<AppWatchEvent> {
@@ -145,10 +142,7 @@ impl Inner {
     }
 }
 
-fn convert_event(
-    sys: &SystemEvent,
-    counter: &AtomicU64,
-) -> Option<AppWatchEvent> {
+fn convert_event(sys: &SystemEvent, counter: &AtomicU64) -> Option<AppWatchEvent> {
     let (app, kind, payload) = match sys {
         SystemEvent::ManualSyncRequested { app } => (
             app.0.clone(),

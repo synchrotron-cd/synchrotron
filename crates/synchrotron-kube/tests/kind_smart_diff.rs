@@ -108,7 +108,11 @@ fn deployment_manifest(namespace: &str, name: &str, image: &str) -> Manifest {
         gvk: Gvk::parse("apps/v1", "Deployment"),
         name: name.to_string(),
         namespace: Some(namespace.to_string()),
-        body: serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&deployment_yaml(namespace, name, image)).unwrap().into(),
+        body: serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&deployment_yaml(
+            namespace, name, image,
+        ))
+        .unwrap()
+        .into(),
     }
 }
 

@@ -35,7 +35,9 @@ data:
 }
 
 fn build_set(count: usize) -> Vec<Manifest> {
-    (0..count).map(|i| configmap(&format!("cm-{i}"), "v1")).collect()
+    (0..count)
+        .map(|i| configmap(&format!("cm-{i}"), "v1"))
+        .collect()
 }
 
 fn bench_plan(c: &mut Criterion) {

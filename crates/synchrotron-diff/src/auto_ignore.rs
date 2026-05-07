@@ -155,7 +155,11 @@ pub fn parse_scaler(manifest: &Manifest) -> Option<ScalerEntry> {
 }
 
 fn parse_hpa(m: &Manifest) -> Option<ScalerEntry> {
-    let target = parse_scale_target_ref(m.body.value(), &["spec", "scaleTargetRef"], m.namespace.clone())?;
+    let target = parse_scale_target_ref(
+        m.body.value(),
+        &["spec", "scaleTargetRef"],
+        m.namespace.clone(),
+    )?;
     Some(ScalerEntry {
         controller: ControllerKind::Hpa,
         target,
@@ -176,7 +180,8 @@ fn parse_vpa(m: &Manifest) -> Option<ScalerEntry> {
     if matches!(update_mode, Some("Off")) {
         return None;
     }
-    let target = parse_scale_target_ref(m.body.value(), &["spec", "targetRef"], m.namespace.clone())?;
+    let target =
+        parse_scale_target_ref(m.body.value(), &["spec", "targetRef"], m.namespace.clone())?;
     Some(ScalerEntry {
         controller: ControllerKind::Vpa,
         target,
@@ -185,7 +190,11 @@ fn parse_vpa(m: &Manifest) -> Option<ScalerEntry> {
 }
 
 fn parse_keda(m: &Manifest) -> Option<ScalerEntry> {
-    let target = parse_scale_target_ref(m.body.value(), &["spec", "scaleTargetRef"], m.namespace.clone())?;
+    let target = parse_scale_target_ref(
+        m.body.value(),
+        &["spec", "scaleTargetRef"],
+        m.namespace.clone(),
+    )?;
     Some(ScalerEntry {
         controller: ControllerKind::KedaScaledObject,
         target,

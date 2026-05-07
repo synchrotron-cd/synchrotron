@@ -143,20 +143,24 @@ async fn invoke_fetcher(
 #[tokio::test]
 async fn happy_path_posts_jwt_and_parses_token() {
     let state = AppState::default();
-    state.inner.lock().unwrap().responses.push(MockResponse::Ok {
-        token: "ghs_abc123".into(),
-        expires_at: "2030-01-02T03:04:05Z".into(),
-    });
+    state
+        .inner
+        .lock()
+        .unwrap()
+        .responses
+        .push(MockResponse::Ok {
+            token: "ghs_abc123".into(),
+            expires_at: "2030-01-02T03:04:05Z".into(),
+        });
     let base = spawn_mock(state.clone()).await;
 
     let fetcher = default_token_fetcher(fast_config()).unwrap();
     let token = invoke_fetcher(&fetcher, &base, 42).await.unwrap();
 
     assert_eq!(token.token, "ghs_abc123");
-    let expected: SystemTime =
-        chrono::DateTime::parse_from_rfc3339("2030-01-02T03:04:05Z")
-            .unwrap()
-            .into();
+    let expected: SystemTime = chrono::DateTime::parse_from_rfc3339("2030-01-02T03:04:05Z")
+        .unwrap()
+        .into();
     assert_eq!(token.expires_at, expected);
 
     let g = state.inner.lock().unwrap();
@@ -223,7 +227,10 @@ async fn does_not_retry_on_401() {
     let err = invoke_fetcher(&fetcher, &base, 7).await.unwrap_err();
     let msg = err.to_string();
     assert!(msg.contains("401"), "want 401 in error, got: {msg}");
-    assert!(msg.contains("mock error body"), "want body snippet, got: {msg}");
+    assert!(
+        msg.contains("mock error body"),
+        "want body snippet, got: {msg}"
+    );
     assert_eq!(state.inner.lock().unwrap().calls.len(), 1);
 }
 
@@ -276,10 +283,15 @@ async fn fetcher_yields_token_compatible_with_cache_freshness_check() {
     let state = AppState::default();
     let now = SystemTime::now();
     let exp_str: chrono::DateTime<chrono::Utc> = (now + Duration::from_secs(3600)).into();
-    state.inner.lock().unwrap().responses.push(MockResponse::Ok {
-        token: "ghs_cached".into(),
-        expires_at: exp_str.to_rfc3339(),
-    });
+    state
+        .inner
+        .lock()
+        .unwrap()
+        .responses
+        .push(MockResponse::Ok {
+            token: "ghs_cached".into(),
+            expires_at: exp_str.to_rfc3339(),
+        });
     let base = spawn_mock(state.clone()).await;
 
     // Sanity-check the token URL the cache would feed the fetcher.

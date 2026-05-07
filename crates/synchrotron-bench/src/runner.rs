@@ -231,7 +231,9 @@ async fn run_sweeps(
 ) -> anyhow::Result<u64> {
     recording_from_sweep.store(cfg.warmup_sweeps as u64, Ordering::Relaxed);
 
-    let deadline = cfg.duration_seconds.map(|s| Instant::now() + Duration::from_secs(s));
+    let deadline = cfg
+        .duration_seconds
+        .map(|s| Instant::now() + Duration::from_secs(s));
     let target_iterations = cfg.iterations.map(|n| n as u64 + cfg.warmup_sweeps as u64);
 
     let mut sweep: u64 = 0;

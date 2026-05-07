@@ -3,16 +3,37 @@ use crate::output::{self, Column, OutputFormat};
 use anyhow::Result;
 
 const SYNC_COLUMNS: &[Column] = &[
-    Column { header: "APP", path: "app" },
-    Column { header: "STATUS", path: "status" },
+    Column {
+        header: "APP",
+        path: "app",
+    },
+    Column {
+        header: "STATUS",
+        path: "status",
+    },
 ];
 
 const ROLLBACK_COLUMNS: &[Column] = &[
-    Column { header: "APP", path: "app" },
-    Column { header: "REVISION", path: "revision_id" },
-    Column { header: "COMMIT", path: "commit_hash" },
-    Column { header: "MANIFESTS", path: "manifest_count" },
-    Column { header: "STATUS", path: "status" },
+    Column {
+        header: "APP",
+        path: "app",
+    },
+    Column {
+        header: "REVISION",
+        path: "revision_id",
+    },
+    Column {
+        header: "COMMIT",
+        path: "commit_hash",
+    },
+    Column {
+        header: "MANIFESTS",
+        path: "manifest_count",
+    },
+    Column {
+        header: "STATUS",
+        path: "status",
+    },
 ];
 
 pub async fn sync(client: &SynchrotronClient, format: OutputFormat, app: &str) -> Result<()> {
