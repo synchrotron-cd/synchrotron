@@ -1,0 +1,9 @@
+# Rust toolchain pin — keeps local dev and CI in lockstep.
+#
+# Bump deliberately (one PR, with the lint/fix fallout for that
+# version) rather than letting `stable` float and surprise CI on a
+# random push. See bead synchrotron-cd-85h for the rationale.
+[toolchain]
+channel = "1.95.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
