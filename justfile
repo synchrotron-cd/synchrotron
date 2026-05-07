@@ -39,3 +39,10 @@ cli *ARGS:
 # Clean build artifacts
 clean:
     cargo clean
+
+# Run a perf scenario (e.g. `just bench smoke` or `just bench 10k-apps`)
+bench SCENARIO="smoke":
+    mkdir -p reports
+    cargo run --release -p synchrotron-bench -- \
+      --scenario crates/synchrotron-bench/scenarios/{{SCENARIO}}.yaml \
+      --out reports/{{SCENARIO}}.json
