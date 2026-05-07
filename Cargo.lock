@@ -2959,6 +2959,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "synchrotron-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "synchrotron-core",
+ "synchrotron-plugins",
+ "synchrotron-reconcile",
+ "synchrotron-types",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "synchrotron-cli"
 version = "0.1.0"
 dependencies = [

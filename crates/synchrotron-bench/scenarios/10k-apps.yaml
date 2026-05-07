@@ -1,0 +1,11 @@
+# Baseline for the y0v.2 acceptance criterion (10,000 apps per
+# instance, stable). 25 manifests/app matches the planner microbench
+# baseline. Time-bound at 30s so CI runs are predictable.
+name: 10k-apps-baseline
+apps: 10000
+manifests_per_app: 25
+clusters: 1
+drift_ratio: 0.1
+duration_seconds: 30
+warmup_sweeps: 1
+concurrency: 64

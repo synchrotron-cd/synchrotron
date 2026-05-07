@@ -1,0 +1,10 @@
+# Tiny smoke scenario for CI / local sanity checks.
+# Runs in well under a second.
+name: smoke
+apps: 50
+manifests_per_app: 5
+clusters: 1
+drift_ratio: 0.2
+iterations: 3
+warmup_sweeps: 1
+concurrency: 8
