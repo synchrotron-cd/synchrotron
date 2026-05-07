@@ -213,7 +213,7 @@ mod tests {
             gvk: Gvk::parse("v1", "ConfigMap"),
             name: name.into(),
             namespace: None,
-            body,
+            body: body.into(),
         }
     }
 

@@ -101,7 +101,7 @@ spec:
         gvk: Gvk::parse("apps/v1", "Deployment"),
         name: name.to_string(),
         namespace: Some(namespace.to_string()),
-        body,
+        body: body.into(),
     }
 }
 
@@ -141,7 +141,7 @@ async fn run_assertions(
         .await
         .expect("first apply succeeds");
 
-    let managers = managers_of(&applied.manifest.body);
+    let managers = managers_of(applied.manifest.body.value());
     assert!(
         managers.contains(&FIELD_MANAGER.to_string()),
         "first apply should register `{FIELD_MANAGER}` in managedFields; saw {managers:?}"
@@ -202,6 +202,7 @@ async fn run_assertions(
     let replicas = forced
         .manifest
         .body
+        .value()
         .get("spec")
         .and_then(|s| s.get("replicas"))
         .and_then(|r| r.as_i64());

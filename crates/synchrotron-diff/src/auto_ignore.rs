@@ -155,7 +155,7 @@ pub fn parse_scaler(manifest: &Manifest) -> Option<ScalerEntry> {
 }
 
 fn parse_hpa(m: &Manifest) -> Option<ScalerEntry> {
-    let target = parse_scale_target_ref(&m.body, &["spec", "scaleTargetRef"], m.namespace.clone())?;
+    let target = parse_scale_target_ref(m.body.value(), &["spec", "scaleTargetRef"], m.namespace.clone())?;
     Some(ScalerEntry {
         controller: ControllerKind::Hpa,
         target,
@@ -168,6 +168,7 @@ fn parse_vpa(m: &Manifest) -> Option<ScalerEntry> {
     // mutate the target. Skip those.
     let update_mode = m
         .body
+        .value()
         .get("spec")
         .and_then(|s| s.get("updatePolicy"))
         .and_then(|u| u.get("updateMode"))
@@ -175,7 +176,7 @@ fn parse_vpa(m: &Manifest) -> Option<ScalerEntry> {
     if matches!(update_mode, Some("Off")) {
         return None;
     }
-    let target = parse_scale_target_ref(&m.body, &["spec", "targetRef"], m.namespace.clone())?;
+    let target = parse_scale_target_ref(m.body.value(), &["spec", "targetRef"], m.namespace.clone())?;
     Some(ScalerEntry {
         controller: ControllerKind::Vpa,
         target,
@@ -184,7 +185,7 @@ fn parse_vpa(m: &Manifest) -> Option<ScalerEntry> {
 }
 
 fn parse_keda(m: &Manifest) -> Option<ScalerEntry> {
-    let target = parse_scale_target_ref(&m.body, &["spec", "scaleTargetRef"], m.namespace.clone())?;
+    let target = parse_scale_target_ref(m.body.value(), &["spec", "scaleTargetRef"], m.namespace.clone())?;
     Some(ScalerEntry {
         controller: ControllerKind::KedaScaledObject,
         target,
@@ -246,7 +247,7 @@ mod tests {
             gvk: Gvk::parse(&api_version, &kind),
             namespace,
             name,
-            body,
+            body: body.into(),
         }
     }
 

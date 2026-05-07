@@ -58,7 +58,7 @@ impl FieldOwnershipFilter {
         let mut drift = Vec::new();
         let mut informational = Vec::new();
         for change in diff.changes {
-            match owner_of(change.path(), &live.body) {
+            match owner_of(change.path(), live.body.value()) {
                 Some(m) if m == self.our_manager => drift.push(change),
                 Some(_) => informational.push(change),
                 None => drift.push(change),
@@ -112,7 +112,7 @@ mod tests {
             },
             namespace: None,
             name: "x".into(),
-            body,
+            body: body.into(),
         }
     }
 

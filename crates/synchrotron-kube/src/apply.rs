@@ -180,7 +180,7 @@ impl KubeSsaApplier {
             Scope::Cluster => Api::all_with(self.client.clone(), &resource),
         };
 
-        let body_json = yaml_to_json(&manifest.body)
+        let body_json = yaml_to_json(manifest.body.value())
             .map_err(|e| ApplyError::Decode(format!("body→json: {e}")))?;
 
         let mut params = PatchParams::apply(&self.field_manager);
@@ -202,7 +202,7 @@ impl KubeSsaApplier {
                 gvk: manifest.gvk.clone(),
                 namespace: manifest.namespace.clone(),
                 name: manifest.name.clone(),
-                body: normalized,
+                body: normalized.into(),
             },
         })
     }

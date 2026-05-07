@@ -19,6 +19,6 @@ pub mod sidecar;
 
 pub use app_cache::{AppCache, AppCacheKey, AppCacheStats};
 pub use cache::{Cache, CacheKey, CacheStats};
-pub use manifest::{Gvk, Manifest, OwnedResource};
+pub use manifest::{Gvk, Manifest, ManifestBody, OwnedResource};
 pub use registry::{DispatchError, PluginConfig, PluginKind, Registry};
 pub use sidecar::{RetryConfig, Sidecar, SidecarError};

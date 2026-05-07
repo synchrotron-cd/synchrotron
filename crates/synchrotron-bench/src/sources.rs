@@ -37,7 +37,7 @@ impl SyntheticState {
                 .collect();
             let mut l = d.clone();
             for entry in l.iter_mut().take(drift_count) {
-                if let Some(map) = entry.body.as_mapping_mut() {
+                if let Some(map) = entry.body.value_mut().as_mapping_mut() {
                     map.insert(
                         Value::String("data".into()),
                         Value::String("drift".into()),
@@ -85,7 +85,7 @@ fn configmap(name: &str, data_value: &str) -> Manifest {
         gvk: Gvk::parse("v1", "ConfigMap"),
         name: name.into(),
         namespace: Some("default".into()),
-        body: Value::Mapping(body),
+        body: Value::Mapping(body).into(),
     }
 }
 

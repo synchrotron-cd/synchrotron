@@ -68,6 +68,7 @@ pub const DEFAULT_WAVE: i32 = 0;
 pub fn wave_of(manifest: &Manifest) -> i32 {
     let annotations = manifest
         .body
+        .value()
         .get("metadata")
         .and_then(|m| m.get("annotations"));
     let Some(annotations) = annotations else {

@@ -109,7 +109,7 @@ spec:
         gvk: Gvk::parse("apps/v1", "Deployment"),
         name: name.to_string(),
         namespace: Some(namespace.to_string()),
-        body,
+        body: body.into(),
     }
 }
 
@@ -172,7 +172,7 @@ async fn run_assertions(
     let gvk = GroupVersionKind::gvk("apps", "v1", "Deployment");
     let (resource, _caps) = pinned_kind(client, &gvk).await?;
     let api: Api<DynamicObject> = Api::namespaced_with(client.clone(), namespace, &resource);
-    let body_json: serde_json::Value = serde_json::to_value(&manifest.body)?;
+    let body_json: serde_json::Value = serde_json::to_value(manifest.body.value())?;
     let real_obj = api
         .patch(
             &manifest.name,
@@ -183,7 +183,7 @@ async fn run_assertions(
     let mut real_yaml: serde_yaml_ng::Value =
         serde_json::from_value(serde_json::to_value(&real_obj)?)?;
 
-    let mut dry_yaml = dry.body.clone();
+    let mut dry_yaml = dry.body.value().clone();
     strip_volatile(&mut dry_yaml);
     strip_volatile(&mut real_yaml);
 

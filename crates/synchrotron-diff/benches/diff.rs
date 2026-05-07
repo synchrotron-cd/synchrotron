@@ -63,7 +63,7 @@ spec:
         gvk: synchrotron_plugins::Gvk::parse("apps/v1", "Deployment"),
         name: name.into(),
         namespace: Some("default".into()),
-        body,
+        body: body.into(),
     }
 }
 
@@ -73,7 +73,7 @@ fn indent(s: &str, n: usize) -> String {
 }
 
 fn mutate_replicas(m: &mut Manifest, new: u32) {
-    let v = m.body.as_mapping_mut().unwrap();
+    let v = m.body.value_mut().as_mapping_mut().unwrap();
     let spec = v.get_mut("spec").unwrap().as_mapping_mut().unwrap();
     spec.insert(Value::String("replicas".into()), Value::Number(new.into()));
 }
@@ -81,6 +81,7 @@ fn mutate_replicas(m: &mut Manifest, new: u32) {
 fn mutate_one_env_value(m: &mut Manifest, idx: usize) {
     let spec = m
         .body
+        .value_mut()
         .as_mapping_mut()
         .unwrap()
         .get_mut("spec")

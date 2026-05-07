@@ -85,8 +85,8 @@ impl Diff {
 /// they don't, that's drift the planner already caught).
 pub fn diff(desired: &Manifest, live: &Manifest, list_maps: &ListMapKeys) -> Diff {
     let mut changes = Vec::new();
-    let desired_body = strip_excluded(&desired.body);
-    let live_body = strip_excluded(&live.body);
+    let desired_body = strip_excluded(desired.body.value());
+    let live_body = strip_excluded(live.body.value());
     diff_value(
         &desired_body,
         &live_body,

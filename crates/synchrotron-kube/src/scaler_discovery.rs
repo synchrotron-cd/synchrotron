@@ -340,7 +340,7 @@ fn manifest_for(obj: &DynamicObject) -> Option<Manifest> {
         gvk: Gvk::parse(&types.api_version, &types.kind),
         name,
         namespace: obj.metadata.namespace.clone(),
-        body,
+        body: body.into(),
     })
 }
 

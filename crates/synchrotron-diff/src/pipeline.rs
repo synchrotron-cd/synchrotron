@@ -159,7 +159,7 @@ mod tests {
             },
             namespace: Some(namespace.into()),
             name: name.into(),
-            body,
+            body: body.into(),
         }
     }
 

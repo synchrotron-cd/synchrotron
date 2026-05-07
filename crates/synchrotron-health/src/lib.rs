@@ -125,7 +125,7 @@ pub fn assess_with_overrides(manifest: &Manifest, overrides: &CelOverrides) -> H
 fn assess_tier1(manifest: &Manifest) -> Option<HealthAssessment> {
     let group = manifest.gvk.group.as_str();
     let kind = manifest.gvk.kind.as_str();
-    let body = &manifest.body;
+    let body = manifest.body.value();
     Some(match (group, kind) {
         ("apps", "Deployment") => assess_deployment(body),
         ("apps", "StatefulSet") => assess_statefulset(body),
@@ -163,7 +163,7 @@ fn assess_tier1(manifest: &Manifest) -> Option<HealthAssessment> {
 /// tier-1 rule for Deployment already). Picking the more general
 /// one first handles more kinds correctly.
 pub fn assess_by_conditions(manifest: &Manifest) -> Option<HealthAssessment> {
-    let status = manifest.body.get("status")?;
+    let status = manifest.body.value().get("status")?;
     let cond = find_condition(status, "Ready").or_else(|| find_condition(status, "Available"))?;
     Some(health_from_condition(cond))
 }

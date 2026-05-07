@@ -87,7 +87,7 @@ spec:
         gvk: Gvk::parse("batch/v1", "Job"),
         name: name.to_string(),
         namespace: Some(namespace.to_string()),
-        body,
+        body: body.into(),
     }
 }
 

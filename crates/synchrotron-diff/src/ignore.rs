@@ -102,7 +102,7 @@ impl IgnoreRules {
                     }
                 }
                 IgnoreRule::ManagerAllowlist(managers) => {
-                    if path_owned_by_any(path, &live.body, managers) {
+                    if path_owned_by_any(path, live.body.value(), managers) {
                         return true;
                     }
                 }
@@ -185,7 +185,7 @@ mod tests {
             },
             namespace: None,
             name: "x".into(),
-            body,
+            body: body.into(),
         }
     }
 

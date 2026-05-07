@@ -80,7 +80,7 @@ data:
         gvk: Gvk::parse("v1", "ConfigMap"),
         name: name.to_string(),
         namespace: Some(namespace.to_string()),
-        body,
+        body: body.into(),
     }
 }
 

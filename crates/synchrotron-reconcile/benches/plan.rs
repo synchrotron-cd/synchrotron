@@ -30,7 +30,7 @@ data:
         gvk: Gvk::parse("v1", "ConfigMap"),
         name: name.into(),
         namespace: Some("default".into()),
-        body,
+        body: body.into(),
     }
 }
 
@@ -52,6 +52,7 @@ fn bench_plan(c: &mut Criterion) {
         for (i, m) in live_half_drift.iter_mut().enumerate() {
             if i % 2 == 0 {
                 m.body
+                    .value_mut()
                     .as_mapping_mut()
                     .unwrap()
                     .insert(Value::String("data".into()), Value::String("drift".into()));

@@ -202,6 +202,7 @@ pub fn parse_hook_delete_policies(manifest: &Manifest) -> BTreeSet<HookDeletePol
 fn annotation(manifest: &Manifest, key: &str) -> Option<String> {
     manifest
         .body
+        .value()
         .get("metadata")
         .and_then(|m| m.get("annotations"))
         .and_then(|a| a.get(key))

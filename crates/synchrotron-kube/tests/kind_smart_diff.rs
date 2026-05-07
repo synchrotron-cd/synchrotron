@@ -108,7 +108,7 @@ fn deployment_manifest(namespace: &str, name: &str, image: &str) -> Manifest {
         gvk: Gvk::parse("apps/v1", "Deployment"),
         name: name.to_string(),
         namespace: Some(namespace.to_string()),
-        body: serde_yaml_ng::from_str(&deployment_yaml(namespace, name, image)).unwrap(),
+        body: serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&deployment_yaml(namespace, name, image)).unwrap().into(),
     }
 }
 
@@ -134,7 +134,7 @@ spec:
         gvk: Gvk::parse("autoscaling/v2", "HorizontalPodAutoscaler"),
         name: name.to_string(),
         namespace: Some(namespace.to_string()),
-        body,
+        body: body.into(),
     }
 }
 
@@ -151,7 +151,7 @@ async fn apply(
     let (resource, _caps) = pinned_kind(client, &kube_gvk).await?;
     let ns = manifest.namespace.as_deref().expect("namespaced");
     let api: Api<DynamicObject> = Api::namespaced_with(client.clone(), ns, &resource);
-    let body_json: serde_json::Value = serde_json::to_value(&manifest.body)?;
+    let body_json: serde_json::Value = serde_json::to_value(manifest.body.value())?;
     let obj = api
         .patch(
             &manifest.name,
@@ -176,7 +176,7 @@ async fn live_deployment(
         gvk: Gvk::parse("apps/v1", "Deployment"),
         name: name.to_string(),
         namespace: Some(namespace.to_string()),
-        body,
+        body: body.into(),
     })
 }
 
@@ -237,6 +237,7 @@ async fn run_assertions(
     let live = live_deployment(client, namespace, "web").await?;
     let live_replicas = live
         .body
+        .value()
         .get("spec")
         .and_then(|s| s.get("replicas"))
         .and_then(|v| v.as_u64());

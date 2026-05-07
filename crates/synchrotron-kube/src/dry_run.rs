@@ -96,7 +96,7 @@ impl DryRunApplier for KubeDryRunApplier {
             };
 
             // SSA expects JSON; convert from our YAML-shaped body.
-            let body_json = yaml_to_json(&manifest.body)
+            let body_json = yaml_to_json(manifest.body.value())
                 .map_err(|e| DryRunError::Decode(format!("body→json: {e}")))?;
 
             let params = PatchParams::apply(&self.field_manager).dry_run().force();
@@ -113,7 +113,7 @@ impl DryRunApplier for KubeDryRunApplier {
                 gvk: manifest.gvk.clone(),
                 namespace: manifest.namespace.clone(),
                 name: manifest.name.clone(),
-                body: normalized_body,
+                body: normalized_body.into(),
             })
         })
     }

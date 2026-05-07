@@ -103,6 +103,7 @@ pub fn compute_prune_set(
 pub fn is_prune_disabled(manifest: &Manifest) -> bool {
     let annotations = manifest
         .body
+        .value()
         .get("metadata")
         .and_then(|m| m.get("annotations"));
     let Some(ann) = annotations else { return false };
@@ -256,7 +257,7 @@ mod tests {
             gvk: gvk(kind),
             namespace: ns.map(str::to_string),
             name: name.into(),
-            body,
+            body: body.into(),
         }
     }
 

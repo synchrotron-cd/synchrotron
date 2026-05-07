@@ -54,7 +54,7 @@ fn configmap(name: &str, data_value: &str) -> Manifest {
         gvk: Gvk::parse("v1", "ConfigMap"),
         name: name.into(),
         namespace: Some("default".into()),
-        body,
+        body: body.into(),
     }
 }
 

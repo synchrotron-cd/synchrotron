@@ -63,7 +63,47 @@ pub struct Manifest {
     pub namespace: Option<String>,
     /// Full YAML document preserved verbatim so templating plugins
     /// and the reconciler can see fields we don't model explicitly.
-    pub body: Value,
+    pub body: ManifestBody,
+}
+
+/// Wrapper around the verbatim manifest body.
+///
+/// Slice 1 of the d2p refactor: this is currently a thin newtype
+/// around [`Value`] with no behavior change. Subsequent slices will
+/// switch the storage to canonical bytes + lazy parsed view + a
+/// precomputed equality hash, which is why the wrapper exists at
+/// all — moving the call-site churn into one slice lets the storage
+/// swap land without re-touching every consumer.
+///
+/// Use [`ManifestBody::value`] to read the parsed tree;
+/// [`ManifestBody::value_mut`] to mutate it. The newtype is
+/// `#[serde(transparent)]` so wire compatibility with prior callers
+/// is preserved.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(transparent)]
+pub struct ManifestBody {
+    value: Value,
+}
+
+impl ManifestBody {
+    pub fn from_value(value: Value) -> Self {
+        Self { value }
+    }
+    pub fn value(&self) -> &Value {
+        &self.value
+    }
+    pub fn value_mut(&mut self) -> &mut Value {
+        &mut self.value
+    }
+    pub fn into_value(self) -> Value {
+        self.value
+    }
+}
+
+impl From<Value> for ManifestBody {
+    fn from(value: Value) -> Self {
+        Self { value }
+    }
 }
 
 /// Errors from parsing a YAML stream into [`Manifest`]s.
@@ -138,7 +178,7 @@ fn value_to_manifest(
         gvk: Gvk::parse(&api_version, &kind),
         name,
         namespace,
-        body: value,
+        body: ManifestBody::from_value(value),
     })
 }
 
