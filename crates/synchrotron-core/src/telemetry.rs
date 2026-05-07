@@ -170,7 +170,7 @@ impl Sampler {
         // therefore sees 0 and logs, matching the "first event of
         // every N" intuition rather than "Nth event."
         let n = self.counter.fetch_add(1, Ordering::Relaxed);
-        n % self.every_n == 0
+        n.is_multiple_of(self.every_n)
     }
 
     /// Reset the counter. Useful in tests; rarely needed at runtime.
