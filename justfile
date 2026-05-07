@@ -36,6 +36,11 @@ serve:
 cli *ARGS:
     cargo run --bin synchrotron -- {{ARGS}}
 
+# Run cargo-deny supply-chain checks (advisories, licenses, bans,
+# sources). Mirrors what .github/workflows/audit.yml runs in CI.
+audit:
+    cargo deny check
+
 # Clean build artifacts
 clean:
     cargo clean

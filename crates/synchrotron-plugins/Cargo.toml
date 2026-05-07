@@ -3,9 +3,10 @@ name = "synchrotron-plugins"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish.workspace = true
 
 [dependencies]
-lru = "0.12"
+lru = "0.16"
 prost = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

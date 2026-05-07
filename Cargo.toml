@@ -21,6 +21,12 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
+# We ship statically-linked binaries via the release.yml workflow,
+# not via crates.io. `publish = false` keeps internal workspace
+# crates from accidentally getting published and lets cargo-deny's
+# wildcard check treat path-dependencies (synchrotron-* on each
+# other) as the workspace-internal links they are.
+publish = false
 
 [workspace.dependencies]
 # Internal crates

@@ -1,0 +1,45 @@
+name: audit
+
+# Supply-chain hygiene: cargo-deny runs four checks (advisories,
+# licenses, bans, sources) against the workspace dep tree. The
+# config lives in /deny.toml.
+#
+# Triggers: any change to the dep graph (Cargo.toml/Cargo.lock or
+# this file), pushes to main, a weekly cron (catches new advisories
+# in unchanged code), and on-demand.
+
+on:
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'deny.toml'
+      - 'crates/*/Cargo.toml'
+      - '.github/workflows/audit.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'deny.toml'
+      - 'crates/*/Cargo.toml'
+      - '.github/workflows/audit.yml'
+  schedule:
+    # Mondays 12:00 UTC — fresh week, before deeper PR work lands.
+    - cron: '0 12 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features

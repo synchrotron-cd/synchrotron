@@ -1,0 +1,82 @@
+# cargo-deny config — see synchrotron-cd-1sh.
+#
+# Four checks: advisories (CVEs), licenses (SPDX policy), bans
+# (duplicate / wildcard / banned crates), sources (only allowed
+# registries / git remotes). Tuned to the current dep tree on
+# first land; tighten over time.
+
+[graph]
+all-features = false
+no-default-features = false
+
+[output]
+feature-depth = 1
+
+[advisories]
+# Pulls https://github.com/rustsec/advisory-db. Yanked crates
+# warn (sometimes the chain hasn't caught up); CVE matches fail.
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "warn"
+# Each entry is one specific advisory we acknowledge but cannot
+# action right now. Most of these are "unmaintained" flags on
+# transitive deps inside `kube`, `reqwest`, `tracing-subscriber`
+# etc. — fixing them means waiting on upstream chains, not a
+# patch on our side. Revisit on every dep bump.
+ignore = [
+  # backoff: unmaintained, transitively via `kube`. Tracked upstream.
+  "RUSTSEC-2025-0012",
+  # derivative: unmaintained, transitively via `kube`. Replacement
+  # would need upstream switch to `derive_more` or hand-rolled.
+  "RUSTSEC-2024-0388",
+  # instant: unmaintained, transitively via `backoff` chain.
+  "RUSTSEC-2024-0384",
+  # paste: unmaintained, transitively via `metrics`. Not actionable.
+  "RUSTSEC-2024-0436",
+  # rustls-pemfile: unmaintained, transitively via `kube`. Upstream
+  # is migrating; no fix available at our level.
+  "RUSTSEC-2025-0134",
+]
+
+[licenses]
+# Permissive set covering everything currently in the workspace's
+# transitive deps. MPL-2.0 is included as weak copyleft (file-level,
+# fine for dynamic linkage / distribution as a library).
+allow = [
+  "Apache-2.0",
+  "MIT",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "Zlib",
+  "BSL-1.0",
+  "CDLA-Permissive-2.0",
+  "Unlicense",
+  "MPL-2.0",
+]
+confidence-threshold = 0.9
+exceptions = []
+
+[bans]
+# Multiple versions of the same crate is "warn" rather than "deny"
+# because the ecosystem regularly has e.g. two `syn` versions in
+# flight; chasing them into lockstep is rarely worth the friction.
+# Wildcard versions in our own Cargo.toml *are* a deny — they make
+# `cargo update` non-deterministic. `allow-wildcard-paths` exempts
+# path/workspace-internal deps (where the wildcard is just how
+# `{ workspace = true }` resolves in the cargo metadata).
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+highlight = "all"
+allow = []
+deny = []
+
+[sources]
+# Default-deny anything not from crates.io, opt-in to git remotes
+# only when we have a reason. Keeps supply-chain surface small.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
