@@ -1,0 +1,107 @@
+name: bench
+
+# Runs criterion microbenches and the synchrotron-bench scenario
+# runner on each PR. Numbers from GitHub-hosted runners are noisy
+# (shared CPU, varying neighbor load), so absolute regression
+# detection is manual review of the uploaded artifacts; the only
+# automatic gate is the per-app memory budget (--max-rss-kb-per-app),
+# which is robust to CI noise because it's an order-of-magnitude
+# check, not a percentage one.
+
+on:
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/bench.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/bench.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  RUSTFLAGS: '-D warnings'
+
+jobs:
+  bench:
+    name: criterion + scenarios
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: bench-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: bench-${{ runner.os }}-
+
+      - name: Build release artifacts
+        run: cargo build --release -p synchrotron-bench
+
+      # Reduced sample size keeps wall time bounded on shared
+      # runners. We don't try to detect regressions from these
+      # numbers automatically (too noisy) — they're uploaded for
+      # human review.
+      - name: Run criterion benches
+        run: |
+          cargo bench --workspace -- \
+            --warm-up-time 1 --measurement-time 3 --sample-size 30 \
+            | tee bench-output.txt
+
+      - name: Run smoke scenario
+        run: |
+          mkdir -p reports
+          ./target/release/synchrotron-bench \
+            --scenario crates/synchrotron-bench/scenarios/smoke.yaml \
+            --out reports/smoke.json
+
+      # Budget guard. The 250 KB ceiling is documented in
+      # crates/synchrotron-bench/RUNBOOK.md and tracked in
+      # synchrotron-cd-d2p; tighten when that lands.
+      - name: Memory budget guard (1k apps)
+        run: |
+          ./target/release/synchrotron-bench \
+            --scenario crates/synchrotron-bench/scenarios/mem-1k.yaml \
+            --max-rss-kb-per-app 250 \
+            --out reports/mem-budget.json
+
+      - name: Print scenario summaries
+        if: always()
+        run: |
+          for f in reports/*.json; do
+            echo "=== $f ==="
+            jq '{scenario, elapsed_seconds, reconciles, latency_us, throughput_per_second,
+                 peak_rss_mb: (.memory.peak_rss_bytes / 1048576 | floor),
+                 rss_kb_per_app: ((.memory.peak_rss_bytes / 1024) / .config.apps | floor)}' "$f"
+          done
+
+      - name: Upload bench reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-reports
+          path: |
+            reports/
+            target/criterion/
+            bench-output.txt
+          retention-days: 14
