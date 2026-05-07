@@ -1,0 +1,57 @@
+{
+  "scenario": "mem-1k",
+  "config": {
+    "name": "mem-1k",
+    "apps": 1000,
+    "manifests_per_app": 25,
+    "clusters": 1,
+    "drift_ratio": 0.1,
+    "iterations": null,
+    "duration_seconds": 5,
+    "warmup_sweeps": 1,
+    "concurrency": 64
+  },
+  "started_at": "2026-05-07T03:18:40.975842282+00:00",
+  "elapsed_seconds": 5.07334366,
+  "reconciles": {
+    "completed": 747000,
+    "failed": 0,
+    "sweeps": 748
+  },
+  "latency_us": {
+    "samples": 747000,
+    "min": 18,
+    "p50": 35,
+    "p95": 49,
+    "p99": 55,
+    "max": 6333,
+    "mean": 36
+  },
+  "memory": {
+    "peak_rss_bytes": 103337984,
+    "final_rss_bytes": 103337984,
+    "samples": [
+      {
+        "t_seconds": 0.073241091,
+        "rss_bytes": 96645120
+      },
+      {
+        "t_seconds": 1.072723966,
+        "rss_bytes": 99356672
+      },
+      {
+        "t_seconds": 2.073020558,
+        "rss_bytes": 100732928
+      },
+      {
+        "t_seconds": 3.072486872,
+        "rss_bytes": 102068224
+      },
+      {
+        "t_seconds": 4.072554154,
+        "rss_bytes": 103337984
+      }
+    ]
+  },
+  "throughput_per_second": 147240.17335738696
+}

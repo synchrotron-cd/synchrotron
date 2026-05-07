@@ -102,6 +102,11 @@ pub struct Manifest {
 pub struct ManifestBody {
     /// Canonical JSON bytes. Source of truth.
     bytes: Arc<[u8]>,
+    /// FNV-1a 64-bit hash over [`bytes`]. Computed once at
+    /// construction. Drives the planner's fast-path equality check —
+    /// hash mismatch is the most common case (drift detected) and
+    /// avoids parsing either body.
+    hash: u64,
     /// Lazy parsed view, shared across clones so the parse cost
     /// is paid at most once per body instance, not once per clone.
     parsed: Arc<OnceLock<Value>>,
@@ -115,12 +120,14 @@ impl ManifestBody {
         let bytes: Arc<[u8]> = serde_json::to_vec(&value)
             .expect("manifest body must be JSON-serializable")
             .into();
+        let hash = fnv1a64(&bytes);
         let parsed = OnceLock::new();
         // Best-effort prime; fails only if the cell is already
         // populated, which can't happen on a fresh OnceLock.
         let _ = parsed.set(value);
         Self {
             bytes,
+            hash,
             parsed: Arc::new(parsed),
         }
     }
@@ -128,10 +135,19 @@ impl ManifestBody {
     /// Build from raw canonical bytes without parsing. The parsed
     /// view is materialized lazily on first `.value()` call.
     pub fn from_bytes(bytes: Arc<[u8]>) -> Self {
+        let hash = fnv1a64(&bytes);
         Self {
             bytes,
+            hash,
             parsed: Arc::new(OnceLock::new()),
         }
+    }
+
+    /// 64-bit FNV-1a hash over the canonical bytes. Equal bodies
+    /// (byte-for-byte) always have equal hashes; the converse holds
+    /// with vanishing probability of collision (~2⁻⁶⁴ per pair).
+    pub fn body_hash(&self) -> u64 {
+        self.hash
     }
 
     /// Borrow the parsed tree, materializing it on first access.
@@ -157,16 +173,52 @@ impl ManifestBody {
     }
 }
 
-/// Equality is defined over the parsed [`Value`] for slice 2 — that
-/// preserves the planner's existing semantics (structural equality,
-/// regardless of byte-level differences like key ordering or
-/// whitespace). Slice 3 will swap this to a byte/hash compare for
-/// the planner's hot path; the parsed comparison stays as a
-/// fallback, but the planner won't reach it in steady state.
+/// Tiered equality (slice 3 of d2p):
+///
+/// 1. **Hash compare** (constant time): mismatch ⇒ fast `false`,
+///    no parse. This is the bulk of "manifest changed" cases.
+/// 2. **Pointer compare** on `bytes`: same `Arc` ⇒ trivially equal.
+///    Hits when the same source manifest is referenced twice.
+/// 3. **Byte compare** on `bytes`: equal bytes ⇒ equal bodies. This
+///    is the steady-state no-op path — both sources produced the
+///    same canonical form.
+/// 4. **Value compare** (fallback): same hash, different bytes.
+///    Either a hash collision (~2⁻⁶⁴ per pair) or two semantically
+///    equal bodies whose canonical forms differ (e.g. JSON key order
+///    differing between the desired source and the live source).
+///    Walks the parsed `Value`, forcing a parse on both sides.
+///
+/// In the synchrotron-bench steady-state scenario every same-app
+/// reconcile hits the byte-compare tier; the parsed cache stays
+/// un-populated, which is what unlocks the memory budget.
 impl PartialEq for ManifestBody {
     fn eq(&self, other: &Self) -> bool {
+        if self.hash != other.hash {
+            return false;
+        }
+        if Arc::ptr_eq(&self.bytes, &other.bytes) {
+            return true;
+        }
+        if self.bytes == other.bytes {
+            return true;
+        }
         self.value() == other.value()
     }
+}
+
+/// FNV-1a 64-bit. Picked over std's `DefaultHasher` because it's
+/// deterministic across processes (no per-process seed) and
+/// trivially fast — for ~200-byte canonical bodies the cost is in
+/// the tens of nanoseconds, dwarfed by JSON serialization. Not
+/// cryptographically secure, but body equality isn't a security
+/// boundary.
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
 }
 
 impl Serialize for ManifestBody {

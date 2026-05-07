@@ -157,6 +157,44 @@ this share doesn't apply — production may see a smaller win until
 slice 3 (hash equality, avoids the `Value` cache entirely on the
 noop steady-state path).
 
+### Slice 3 of d2p: hash + bytes equality on `ManifestBody`
+
+`ManifestBody::eq` now short-circuits via FNV-1a hash compare,
+falling back to byte equality and only finally to `Value` walk on
+hash collision / canonical-form drift. Plan() needs no changes —
+its `a.body == b.body` automatically gets the fast path.
+
+| metric (10k-apps) | slice 2 | slice 3 |
+|---|---|---|
+| RSS/app | 90 KB | 92 KB |
+| p50    |  56 µs | **35 µs** |
+| p95    |  66 µs | 42 µs |
+| p99    | 136 µs | **53 µs** (2.6× faster) |
+| tput   | 134 k/s | **185 k/s** |
+
+Per-call (single-threaded, `reconcile_app` microbench): 23 → 18 µs
+for 1 app, 27 → 19 µs for 100 apps.
+
+**Memory was a wash**, contrary to my prior expectation. The
+parsed-Value cache wasn't the dominant cost as I'd estimated;
+remaining steady-state RSS is dominated by the `Arc<[u8]>` bytes,
+the `Manifest` struct fields (gvk + name + namespace strings), and
+allocator overhead. Total marginal RSS/app across the d2p slices:
+
+| state | RSS/app (10k-apps) |
+|---|---|
+| pre-d2p (slice 0) | 143 KB |
+| slice 1 (newtype) | 143 KB (no change, by design) |
+| slice 2 (bytes + lazy Value) | 90 KB |
+| slice 3 (hash equality) | 92 KB |
+
+The y0v.3 budget of <50 KB/app is still not met; closing the gap
+likely needs to attack the `Manifest` struct itself
+(string-interned gvk/name/namespace, since those repeat across
+manifests) or compact the canonical bytes further. Filed in a
+follow-up if y0v.3.4 (`bjx`) finds it can't tighten the budget low
+enough.
+
 ### Latency win from `Arc<[Manifest]>` source traits
 
 Switching `DesiredSource::desired` / `LiveSource::live` from
