@@ -1,0 +1,98 @@
+name: kind
+
+# Kube + reconcile integration tests against a real kind cluster.
+# These tests are env-gated by `SYNCHROTRON_KIND_TEST=1` and skip
+# themselves in the offline `ci.yml` job; this workflow is the
+# only place that actually exercises them.
+#
+# Triggers on changes to the crates that own kube I/O or the
+# reconcile orchestration, and to the workflow itself. Other crate
+# changes don't need a kind cluster, so they don't pay the ~5
+# minute boot cost.
+
+on:
+  pull_request:
+    paths:
+      - 'crates/synchrotron-kube/**'
+      - 'crates/synchrotron-reconcile/**'
+      - 'crates/synchrotron-plugins/**'
+      - 'crates/synchrotron-types/**'
+      - 'crates/synchrotron-core/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/kind.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/synchrotron-kube/**'
+      - 'crates/synchrotron-reconcile/**'
+      - 'crates/synchrotron-plugins/**'
+      - 'crates/synchrotron-types/**'
+      - 'crates/synchrotron-core/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/kind.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  RUSTFLAGS: '-D warnings'
+  SYNCHROTRON_KIND_TEST: '1'
+
+jobs:
+  kind:
+    name: kind integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.95.0
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: kind-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: kind-${{ runner.os }}-
+
+      - uses: helm/kind-action@v1
+        with:
+          version: v0.24.0
+          cluster_name: synchrotron-kind
+
+      - name: Show cluster info
+        run: |
+          kubectl cluster-info
+          kubectl get nodes -o wide
+
+      # Each `--test` flag picks one integration test target by name.
+      # Listing them explicitly (rather than `--workspace`) means we
+      # don't re-run the offline tests already covered by ci.yml,
+      # and `--test-threads=1` keeps kind from getting hammered with
+      # parallel namespace creates.
+      - name: Run kube kind tests
+        run: |
+          cargo test -p synchrotron-kube \
+            --test kind_apply \
+            --test kind_dry_run \
+            --test kind_hooks \
+            --test kind_prune \
+            --test kind_smart_diff \
+            -- --test-threads=1 --nocapture
+
+      - name: Run reconcile kind tests
+        run: |
+          cargo test -p synchrotron-reconcile \
+            --test kind_orchestrator_e2e \
+            -- --test-threads=1 --nocapture
