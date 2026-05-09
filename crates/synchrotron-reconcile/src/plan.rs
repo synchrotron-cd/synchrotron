@@ -22,7 +22,7 @@ use synchrotron_plugins::{Gvk, Manifest};
 /// the planner sees that as a `Delete` of the old one plus an
 /// `Apply` of the new one, which is what a naive operator would
 /// expect.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct ResourceRef {
     pub gvk: Gvk,
     pub namespace: Option<String>,

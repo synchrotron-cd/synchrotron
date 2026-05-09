@@ -1,24 +1,24 @@
 //! Per-app reconcile function.
 //!
-//! Composes the pure planner (see [`crate::plan`]) with desired /
-//! live state sources and the event bus. The reconcile function:
+//! Two entry points share the same fetch+plan core:
 //!
-//! 1. Fetches the desired manifests for the app from a
-//!    [`DesiredSource`] (backed by the app cache in production).
-//! 2. Fetches the live state from a [`LiveSource`] (backed by the
-//!    kube informer cache in production).
-//! 3. Calls [`plan`](crate::plan::plan) to compute planned actions.
-//! 4. Publishes a [`SystemEvent::SyncOutcome`] on the event bus.
+//! - [`Reconciler::reconcile_app`] (sync, plan-only): fetches
+//!   desired + live, calls [`plan`](crate::plan::plan), publishes a
+//!   `SyncOutcome` event. Used by the diff API and the criterion
+//!   benches where we only want to measure the planner cost.
+//! - [`Reconciler::reconcile_and_apply_app`] (async, plan + apply):
+//!   does the above, then if a [`ReconcileExecutor`] is attached
+//!   (via [`Reconciler::with_executor`]), groups the plan into waves
+//!   and drives [`execute_waves`] against the cluster's [`Applier`]
+//!   and [`HealthChecker`]. This is the production path.
 //!
-//! Actually executing the plan (kubectl apply / delete) lands in a
-//! later slice. This slice ships the end-to-end plumbing so the
-//! downstream slices can focus on the apply side in isolation.
-//!
-//! Both `DesiredSource` and `LiveSource` are intentionally
-//! synchronous: in production they read in-memory caches, and a
-//! sync trait keeps the call sites simple. Wrapping a blocking I/O
-//! source with a background task is the caller's problem.
+//! `DesiredSource` and `LiveSource` are sync because in production
+//! they read in-memory caches; wrapping a blocking I/O source with a
+//! background task is the caller's problem. The apply path is async
+//! because the kube `Applier` does real network I/O.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -26,11 +26,15 @@ use synchrotron_core::events::{EventBus, SystemEvent};
 use synchrotron_core::metrics::Metrics;
 use synchrotron_core::telemetry::reconcile_span;
 use synchrotron_plugins::Manifest;
-use synchrotron_types::{AppName, ClusterName};
+use synchrotron_types::{AppName, ClusterName, HealthStatusCode};
 use thiserror::Error;
 use tracing::{debug, warn};
 
-use crate::plan::{plan, Plan};
+use crate::plan::{plan, Plan, ResourceRef};
+use crate::wave::{
+    execute_waves, group_into_waves, Applier, HealthChecker, WaveExecConfig, WaveExecError,
+    WaveExecReport,
+};
 
 /// Reason a source couldn't satisfy a lookup.
 ///
@@ -67,17 +71,26 @@ pub trait LiveSource: Send + Sync {
 /// the opposite. This struct is what the caller (e.g. the worker
 /// pool handler) inspects; the `SyncOutcome` event is the
 /// observability side-channel.
+///
+/// `apply` is `None` for the plan-only path
+/// ([`Reconciler::reconcile_app`]) or when the planner failed before
+/// executing. When the apply path runs ([`Reconciler::reconcile_and_apply_app`])
+/// it carries either the [`WaveExecReport`] from a successful run
+/// or the [`WaveExecError`] that aborted it. `error` is *not* set
+/// for an apply failure — `apply` is the source of truth there, and
+/// `success()` consults both.
 #[derive(Debug, Clone)]
 pub struct ReconcileOutcome {
     pub app: AppName,
     pub cluster: ClusterName,
     pub plan: Option<Plan>,
     pub error: Option<ReconcileError>,
+    pub apply: Option<Result<WaveExecReport, WaveExecError>>,
 }
 
 impl ReconcileOutcome {
     pub fn success(&self) -> bool {
-        self.error.is_none()
+        self.error.is_none() && !matches!(self.apply, Some(Err(_)))
     }
 }
 
@@ -97,11 +110,41 @@ pub enum ReconcileError {
     },
 }
 
+/// Optional execution side: an [`Applier`] (e.g. kube SSA) plus a
+/// [`HealthChecker`] (e.g. informer-backed status reader), with the
+/// per-wave config that drives [`execute_waves`]. Reconciler holds
+/// this behind an `Option` so the planner-only path stays usable for
+/// benchmarks and the diff API.
+pub struct ReconcileExecutor {
+    pub applier: Arc<dyn Applier>,
+    pub health: Arc<dyn HealthChecker>,
+    pub config: WaveExecConfig,
+}
+
+/// Trivial [`HealthChecker`] that reports `Healthy` for any input.
+/// Used as a default before slice 2 (oes) lands the real
+/// informer-backed health reader. Safe-but-eager: every wave
+/// auto-advances the moment its applies finish, so a still-rolling
+/// Deployment won't block the next wave. That's fine for the
+/// happy-path bring-up; production deployments should swap this
+/// out.
+pub struct AlwaysHealthy;
+
+impl HealthChecker for AlwaysHealthy {
+    fn health<'a>(
+        &'a self,
+        _resources: &'a [ResourceRef],
+    ) -> Pin<Box<dyn Future<Output = HealthStatusCode> + Send + 'a>> {
+        Box::pin(async { HealthStatusCode::Healthy })
+    }
+}
+
 pub struct Reconciler {
     desired: Arc<dyn DesiredSource>,
     live: Arc<dyn LiveSource>,
     bus: EventBus,
     metrics: Option<Arc<Metrics>>,
+    executor: Option<Arc<ReconcileExecutor>>,
 }
 
 impl Reconciler {
@@ -111,6 +154,7 @@ impl Reconciler {
             live,
             bus,
             metrics: None,
+            executor: None,
         }
     }
 
@@ -120,6 +164,15 @@ impl Reconciler {
     /// `synchrotron_plan_changes`.
     pub fn with_metrics(mut self, metrics: Arc<Metrics>) -> Self {
         self.metrics = Some(metrics);
+        self
+    }
+
+    /// Attach an apply-side executor. Without this, only
+    /// [`Self::reconcile_app`] (plan-only) is meaningful;
+    /// [`Self::reconcile_and_apply_app`] degrades to plan-only when
+    /// no executor is configured.
+    pub fn with_executor(mut self, executor: ReconcileExecutor) -> Self {
+        self.executor = Some(Arc::new(executor));
         self
     }
 
@@ -193,7 +246,90 @@ impl Reconciler {
             cluster: cluster.clone(),
             plan: Some(plan),
             error: None,
+            apply: None,
         }
+    }
+
+    /// Plan + execute. Runs the same planning step as
+    /// [`Self::reconcile_app`], then (if an [`Applier`] /
+    /// [`HealthChecker`] are attached via [`Self::with_executor`])
+    /// groups the plan into waves and drives [`execute_waves`]
+    /// against the cluster.
+    ///
+    /// If no executor is attached this degrades to plan-only — the
+    /// returned [`ReconcileOutcome`] has `apply: None` and matches
+    /// what [`Self::reconcile_app`] would have produced. That keeps
+    /// the call site uniform whether or not the apply path is
+    /// configured (the diff API and benches both rely on this).
+    ///
+    /// On apply failure, the planning side still succeeds (the plan
+    /// in `outcome.plan` is the one we tried to execute); the apply
+    /// failure surfaces in `outcome.apply = Some(Err(_))` and
+    /// `outcome.success()` returns false.
+    pub async fn reconcile_and_apply_app(
+        &self,
+        app: &AppName,
+        cluster: &ClusterName,
+    ) -> ReconcileOutcome {
+        let mut outcome = self.reconcile_app(app, cluster);
+        let Some(plan_ref) = &outcome.plan else {
+            return outcome; // planning already failed
+        };
+        let Some(executor) = self.executor.clone() else {
+            return outcome; // plan-only mode
+        };
+
+        // Re-fetch sources to group into waves. Both reads hit the
+        // in-memory caches behind `Arc<[Manifest]>`, so this is a
+        // refcount bump per call, not a deep clone — see y0v.3 /
+        // d2p notes for the rationale.
+        let desired = match self.desired.desired(app) {
+            Ok(d) => d,
+            Err(e) => {
+                outcome.apply = Some(Err(WaveExecError::ApplyFailed {
+                    wave: 0,
+                    resource: ResourceRef::default(),
+                    source: crate::wave::ApplyError::new(format!(
+                        "could not refetch desired manifests for wave grouping: {e}"
+                    )),
+                }));
+                return outcome;
+            }
+        };
+        let live = match self.live.live(app, cluster) {
+            Ok(l) => l,
+            Err(e) => {
+                outcome.apply = Some(Err(WaveExecError::ApplyFailed {
+                    wave: 0,
+                    resource: ResourceRef::default(),
+                    source: crate::wave::ApplyError::new(format!(
+                        "could not refetch live manifests for wave grouping: {e}"
+                    )),
+                }));
+                return outcome;
+            }
+        };
+
+        let wave_plan = group_into_waves(plan_ref, &desired, &live);
+        let result = execute_waves(
+            &wave_plan,
+            executor.applier.as_ref(),
+            executor.health.as_ref(),
+            &executor.config,
+        )
+        .await;
+
+        if let Err(err) = &result {
+            warn!(%app, %cluster, ?err, "wave execution failed");
+        } else {
+            debug!(
+                %app, %cluster,
+                waves = wave_plan.waves.len(),
+                "wave execution complete"
+            );
+        }
+        outcome.apply = Some(result);
+        outcome
     }
 
     fn emit_failure(
@@ -223,6 +359,7 @@ impl Reconciler {
             cluster: cluster.clone(),
             plan: None,
             error: Some(error),
+            apply: None,
         }
     }
 }
@@ -432,5 +569,138 @@ mod tests {
         assert!(!out.success());
         assert!(matches!(out.error, Some(ReconcileError::LiveFetch { .. })));
         assert_eq!(try_drain(&mut rx).len(), 1);
+    }
+
+    // ---- apply-side tests (slice 1 of d2p — wire pipeline) ----
+
+    use crate::wave::{ApplyError, WaveExecConfig};
+    use std::pin::Pin;
+    use synchrotron_types::HealthStatusCode;
+
+    /// Records every apply call so tests can assert what got applied.
+    #[derive(Default)]
+    struct RecordingApplier {
+        calls: Mutex<Vec<crate::plan::ResourceRef>>,
+        fail_on: Mutex<Option<crate::plan::ResourceRef>>,
+    }
+    impl RecordingApplier {
+        fn fail_on(self, r: crate::plan::ResourceRef) -> Self {
+            *self.fail_on.lock().unwrap() = Some(r);
+            self
+        }
+    }
+    impl crate::wave::Applier for RecordingApplier {
+        fn apply<'a>(
+            &'a self,
+            entry: &'a crate::plan::PlanEntry,
+        ) -> Pin<Box<dyn std::future::Future<Output = Result<(), ApplyError>> + Send + 'a>>
+        {
+            let resource = entry.resource.clone();
+            self.calls.lock().unwrap().push(resource.clone());
+            let fail = self.fail_on.lock().unwrap().clone();
+            Box::pin(async move {
+                if fail.as_ref() == Some(&resource) {
+                    Err(ApplyError::new("simulated"))
+                } else {
+                    Ok(())
+                }
+            })
+        }
+    }
+
+    fn executor_with(applier: Arc<RecordingApplier>) -> ReconcileExecutor {
+        ReconcileExecutor {
+            applier,
+            health: Arc::new(AlwaysHealthy),
+            // Tight config so timeouts in misbehaving tests fail
+            // fast instead of stalling the suite.
+            config: WaveExecConfig {
+                per_wave_timeout: std::time::Duration::from_secs(1),
+                poll_interval: std::time::Duration::from_millis(10),
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn reconcile_and_apply_runs_applier_for_each_change() {
+        let (desired_src, live_src, mut reconciler, _rx) = setup();
+        // Two desired CMs, no live → both planned as Apply.
+        desired_src.set(
+            "app-a",
+            Ok(vec![
+                manifest("ConfigMap", "cm-1", Some("default"), "v1"),
+                manifest("ConfigMap", "cm-2", Some("default"), "v1"),
+            ]),
+        );
+        live_src.set("app-a", "prod", Ok(vec![]));
+
+        let applier = Arc::new(RecordingApplier::default());
+        reconciler = reconciler.with_executor(executor_with(applier.clone()));
+
+        let out = reconciler
+            .reconcile_and_apply_app(&AppName("app-a".into()), &ClusterName("prod".into()))
+            .await;
+
+        assert!(out.success(), "outcome should succeed: {out:?}");
+        assert!(matches!(out.apply, Some(Ok(_))));
+        let calls = applier.calls.lock().unwrap();
+        assert_eq!(calls.len(), 2, "both applies should have run");
+    }
+
+    #[tokio::test]
+    async fn reconcile_and_apply_surfaces_apply_failure() {
+        let (desired_src, live_src, mut reconciler, _rx) = setup();
+        desired_src.set(
+            "app-a",
+            Ok(vec![manifest("ConfigMap", "cm-1", Some("default"), "v1")]),
+        );
+        live_src.set("app-a", "prod", Ok(vec![]));
+
+        let target = crate::plan::ResourceRef {
+            gvk: synchrotron_plugins::Gvk::parse("v1", "ConfigMap"),
+            namespace: Some("default".into()),
+            name: "cm-1".into(),
+        };
+        let applier = Arc::new(RecordingApplier::default().fail_on(target));
+        reconciler = reconciler.with_executor(executor_with(applier));
+
+        let out = reconciler
+            .reconcile_and_apply_app(&AppName("app-a".into()), &ClusterName("prod".into()))
+            .await;
+
+        assert!(
+            !out.success(),
+            "apply failure should make outcome unsuccessful"
+        );
+        assert!(matches!(out.apply, Some(Err(_))));
+        assert!(
+            out.plan.is_some(),
+            "plan still produced, apply is what failed"
+        );
+    }
+
+    #[tokio::test]
+    async fn reconcile_and_apply_with_no_executor_is_plan_only() {
+        let (desired_src, live_src, reconciler, _rx) = setup();
+        desired_src.set(
+            "app-a",
+            Ok(vec![manifest("ConfigMap", "cm-1", Some("default"), "v1")]),
+        );
+        live_src.set("app-a", "prod", Ok(vec![]));
+
+        let out = reconciler
+            .reconcile_and_apply_app(&AppName("app-a".into()), &ClusterName("prod".into()))
+            .await;
+
+        assert!(out.success());
+        assert!(out.apply.is_none(), "no executor → no apply run");
+        assert!(out.plan.is_some());
+    }
+
+    #[tokio::test]
+    async fn always_healthy_reports_healthy() {
+        let h = AlwaysHealthy;
+        let status = h.health(&[]).await;
+        assert_eq!(status, HealthStatusCode::Healthy);
     }
 }

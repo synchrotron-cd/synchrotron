@@ -203,7 +203,7 @@ impl Default for WaveExecConfig {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum WaveExecError {
     #[error("wave {wave} apply failed on {resource:?}: {source}")]
     ApplyFailed {

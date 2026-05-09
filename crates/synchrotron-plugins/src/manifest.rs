@@ -12,7 +12,7 @@ use thiserror::Error;
 /// resources and bare `{version}` (e.g. `v1`) for the core group.
 /// We normalize the core group to the empty string so equality
 /// comparisons and cache keys are unambiguous.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Gvk {
     pub group: String,
     pub version: String,
