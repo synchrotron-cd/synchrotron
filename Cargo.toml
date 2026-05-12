@@ -36,6 +36,7 @@ synchrotron-git = { path = "crates/synchrotron-git" }
 synchrotron-kube = { path = "crates/synchrotron-kube" }
 synchrotron-plugins = { path = "crates/synchrotron-plugins" }
 synchrotron-diff = { path = "crates/synchrotron-diff" }
+synchrotron-reconcile = { path = "crates/synchrotron-reconcile" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

@@ -3109,6 +3109,7 @@ dependencies = [
  "serde_yaml_ng",
  "synchrotron-diff",
  "synchrotron-plugins",
+ "synchrotron-reconcile",
  "synchrotron-types",
  "tempfile",
  "thiserror 2.0.18",

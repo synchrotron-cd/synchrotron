@@ -9,6 +9,11 @@ publish.workspace = true
 synchrotron-types.workspace = true
 synchrotron-diff.workspace = true
 synchrotron-plugins.workspace = true
+# Slice 2 of the wire-pipeline epic (oes): the kube-side LiveSource
+# impl. synchrotron-reconcile only depends on synchrotron-kube in
+# its dev-dependencies (for integration tests), so taking the
+# reverse dep here doesn't form a cycle.
+synchrotron-reconcile = { workspace = true }
 serde.workspace = true
 serde_yaml_ng = "0.10"
 thiserror.workspace = true
