@@ -13,6 +13,7 @@ use synchrotron_reconcile::{
 };
 use synchrotron_server::api;
 use synchrotron_server::config::{reload, Config, ConfigHandle};
+use synchrotron_server::pipeline;
 use synchrotron_types::AppName;
 
 /// DB-backed [`AppResolver`]. Maps a repo URL (the wire form
@@ -122,7 +123,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let app_cache = Arc::new(AppCache::with_defaults());
-    let _app_renderer = Arc::new(AppRenderer::new(plugin_registry, app_cache));
+    let app_renderer = Arc::new(AppRenderer::new(plugin_registry, app_cache));
 
     // Desired-side store (slice c4c). The render driver, when it
     // lands, calls `.put_vec(app, manifests)` after each render.
@@ -206,6 +207,33 @@ async fn main() -> anyhow::Result<()> {
     let _trigger = EventTrigger::spawn(&bus, pool.handle(), resolver);
     registry.report("reconciler", api::ComponentState::Up);
     info!("event trigger spawned (RepoChanged / WebhookTriggered → pool)");
+
+    // Desired-state pipeline (synchrotron-cd-tvy): git Pollers per
+    // repo, bus bridges, and the render loop that updates the
+    // DesiredStore on RepoChanged. Built from existing cfg; the
+    // pollers stay alive while `_pipeline` does (which is the whole
+    // process — the binding name is `_` to silence unused-warning,
+    // since the live tasks are what we want, not the handle).
+    let git_workspace = synchrotron_git::Workspace::new(
+        cfg.server
+            .db_path
+            .parent()
+            .map(|p| p.join("git"))
+            .unwrap_or_else(|| std::path::PathBuf::from(".synchrotron-git")),
+    );
+    git_workspace.ensure_layout()?;
+    let git_client = Arc::new(synchrotron_git::GitClient::new(git_workspace.clone()));
+    let _pipeline = pipeline::spawn(pipeline::PipelineDeps {
+        repos: cfg.repos.clone(),
+        polling: cfg.polling.clone(),
+        workspace: git_workspace,
+        git_client,
+        renderer: app_renderer,
+        desired_store: desired_store.clone(),
+        db: apps_state.db.clone(),
+        bus: bus.clone(),
+    });
+    info!(repos = cfg.repos.len(), "render pipeline spawned");
 
     let app = api::router_with_apps(apps_state)
         .merge(api::metrics_router(metrics))
