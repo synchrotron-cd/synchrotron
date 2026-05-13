@@ -17,6 +17,7 @@
 
 pub mod auto_heal;
 pub mod debounce;
+pub mod desired_store;
 pub mod hooks;
 pub mod kind_order;
 pub mod plan;
@@ -27,6 +28,7 @@ pub mod worker_pool;
 
 pub use auto_heal::{AppLister, AutoHealConfig, AutoHealScheduler, AutoHealStats};
 pub use debounce::{DebounceConfig, DebounceStats, Debouncer};
+pub use desired_store::{DesiredStore, StoreDesiredSource};
 pub use hooks::{
     hooks_for_phase, parse_hook_delete_policies, parse_hook_phases, split_hooks, Hook,
     HookDeletePolicy, HookPhase, HookSplit, ARGOCD_HOOK_ANNOTATION,

@@ -136,10 +136,15 @@ impl AppCache {
         }
     }
 
-    pub fn put(&self, key: AppCacheKey, manifests: Vec<Manifest>) {
+    /// Insert (or replace) the entry for `key` and return the shared
+    /// `Arc<[Manifest]>` that's now cached. Returning the Arc lets
+    /// `AppRenderer` hand it back to the caller without a `get`
+    /// follow-up that would inflate hit stats.
+    pub fn put(&self, key: AppCacheKey, manifests: Vec<Manifest>) -> Arc<[Manifest]> {
         let bytes = estimate_bytes(&manifests);
+        let arc: Arc<[Manifest]> = Arc::from(manifests);
         let entry = Entry {
-            manifests: Arc::from(manifests),
+            manifests: Arc::clone(&arc),
             bytes,
         };
 
@@ -166,6 +171,7 @@ impl AppCache {
                 break;
             }
         }
+        arc
     }
 
     /// Drop every entry whose key has the given `app_id`. Called

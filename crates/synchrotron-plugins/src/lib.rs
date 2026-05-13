@@ -10,6 +10,7 @@
 //! (cache, reconciler) is agnostic to which runtime produced it.
 
 pub mod app_cache;
+pub mod app_renderer;
 pub mod cache;
 pub mod local;
 pub mod manifest;
@@ -18,6 +19,7 @@ pub mod registry;
 pub mod sidecar;
 
 pub use app_cache::{AppCache, AppCacheKey, AppCacheStats};
+pub use app_renderer::{AppRenderSpec, AppRenderer, RenderError};
 pub use cache::{Cache, CacheKey, CacheStats};
 pub use manifest::{Gvk, Manifest, ManifestBody, OwnedResource};
 pub use registry::{DispatchError, PluginConfig, PluginKind, Registry};
