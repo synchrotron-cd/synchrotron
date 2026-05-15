@@ -10,5 +10,7 @@
 mod runner;
 mod types;
 
-pub use runner::{kube_watch_factory, ClientProvider, Informer, WatchFactory};
+pub use runner::{
+    dynamic_watch_factory, kube_watch_factory, ClientProvider, Informer, WatchFactory,
+};
 pub use types::{InformerConfig, InformerEvent};

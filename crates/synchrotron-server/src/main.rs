@@ -6,8 +6,8 @@ use synchrotron_core::events::EventBus;
 use synchrotron_core::metrics::Metrics;
 use synchrotron_core::telemetry::{init as telemetry_init, TelemetryConfig};
 use synchrotron_kube::{
-    AuthSource, ClusterConfig as KubeClusterConfig, KubeApplierAdapter, KubeClient, KubeSsaApplier,
-    LiveStore, StoreLiveSource,
+    spawn_default_informers, AuthSource, ClusterConfig as KubeClusterConfig, KubeApplierAdapter,
+    KubeClient, KubeSsaApplier, LiveStore, StoreLiveSource,
 };
 use synchrotron_plugins::{AppCache, AppRenderer, Registry};
 use synchrotron_reconcile::{
@@ -149,13 +149,16 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Build a kube Applier + ReconcileExecutor per configured
-    // cluster (synchrotron-cd-79e). A cluster whose Client fails to
-    // build (missing kubeconfig, unreachable in-cluster SA token,
-    // etc) is logged and skipped — the Reconciler stays plan-only
-    // for that cluster. Other clusters still apply.
+    // cluster (synchrotron-cd-79e), and spawn the per-GVK informers
+    // that feed the LiveStore (synchrotron-cd-wba). A cluster whose
+    // Client fails to build (missing kubeconfig, unreachable
+    // in-cluster SA token, etc) is logged and skipped — the
+    // Reconciler stays plan-only for that cluster. Other clusters
+    // still apply.
     let mut reconciler_builder =
         Reconciler::new(desired_source.clone(), live_source.clone(), bus.clone())
             .with_metrics(metrics.clone());
+    let mut cluster_informer_handles = Vec::with_capacity(cfg.clusters.len());
     for c in &cfg.clusters {
         let kube_cfg = if c.in_cluster {
             KubeClusterConfig {
@@ -177,9 +180,9 @@ async fn main() -> anyhow::Result<()> {
                 let applier = Arc::new(KubeApplierAdapter::new(ssa));
                 let executor = ReconcileExecutor {
                     applier,
-                    // AlwaysHealthy is the slice-1 default. Real
-                    // informer-backed health waits on the LiveStore
-                    // being populated (slice wba); swap in then.
+                    // AlwaysHealthy until the informer-backed
+                    // health checker lands (it'll read aggregate
+                    // status off the LiveStore that wba is feeding).
                     health: Arc::new(AlwaysHealthy),
                     config: WaveExecConfig::default(),
                 };
@@ -188,12 +191,33 @@ async fn main() -> anyhow::Result<()> {
                     executor,
                 );
                 info!(cluster = %c.name, "kube executor wired");
+
+                // Spawn one Informer<DynamicObject> per default GVK
+                // and route every event into the LiveStore via a
+                // LiveStoreUpdater (slice wba). Informer + router
+                // tasks live on the returned handle for the
+                // process lifetime.
+                let handles = spawn_default_informers(
+                    synchrotron_types::ClusterName(c.name.clone()),
+                    kc,
+                    live_store.clone(),
+                )
+                .await;
+                info!(
+                    cluster = %c.name,
+                    informers = handles.informers.len(),
+                    "kube informers spawned"
+                );
+                cluster_informer_handles.push(handles);
             }
             Err(e) => {
                 warn!(cluster = %c.name, error = %e, "kube client connect failed; cluster stays plan-only");
             }
         }
     }
+    // Hold the informer handles for the process lifetime — drop
+    // would abort every supervisor.
+    let _cluster_informer_handles = cluster_informer_handles;
     let reconciler = Arc::new(reconciler_builder);
 
     // Worker pool: bounded concurrency + per-app FIFO. Handler

@@ -111,6 +111,29 @@ where
     })
 }
 
+/// `WatchFactory` over [`kube::api::DynamicObject`] for a discovered
+/// `ApiResource`. Used by slice wba (synchrotron-cd-wba) where we
+/// want to watch arbitrary GVKs (ConfigMap, Deployment, Ingress, …)
+/// without spelling out a typed `K` per kind. The `ApiResource` is
+/// captured by the closure so the same factory keeps watching the
+/// same GVK across reconnects.
+pub fn dynamic_watch_factory(
+    api_resource: kube::discovery::ApiResource,
+) -> WatchFactory<kube::api::DynamicObject> {
+    Arc::new(move |client: KubeClient, cfg: InformerConfig| {
+        let api: Api<kube::api::DynamicObject> =
+            Api::all_with(client.client().clone(), &api_resource);
+        let mut wcfg = watcher::Config::default();
+        if let Some(sel) = cfg.label_selector {
+            wcfg = wcfg.labels(&sel);
+        }
+        if let Some(sel) = cfg.field_selector {
+            wcfg = wcfg.fields(&sel);
+        }
+        Box::pin(watcher(api, wcfg))
+    })
+}
+
 async fn supervisor<K: Clone + Send + 'static>(
     client_provider: ClientProvider,
     mut health_rx: watch::Receiver<HealthState>,
