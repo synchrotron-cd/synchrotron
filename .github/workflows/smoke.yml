@@ -1,0 +1,117 @@
+name: smoke
+
+# End-to-end smoke test (synchrotron-cd-v18). Different from
+# helm.yml (chart-installs-cleanly with placeholder image),
+# kind.yml (unit-style integration tests against kind), and
+# docker.yml (image builds). This one spins up a kind cluster,
+# builds + side-loads the real synchrotron-server image, installs
+# the Helm chart pointing at it, and verifies the controller
+# actually starts and serves its API.
+#
+# Validating the full git → render → apply path needs an
+# in-cluster git server (the controller fetches by URL); that
+# extra hop is filed as a follow-up. This workflow's job is to
+# confirm "the chart + image + config compose into a running
+# controller" — the bare minimum end-to-end smoke.
+
+on:
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'Dockerfile'
+      - 'deploy/charts/**'
+      - '.github/workflows/smoke.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'Dockerfile'
+      - 'deploy/charts/**'
+      - '.github/workflows/smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: kind + helm + real image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build amd64-only here — kind nodes are amd64 in CI, no need
+      # for the multi-arch QEMU pass that docker.yml does.
+      - name: Build image (load into local docker)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          load: true
+          platforms: linux/amd64
+          tags: synchrotron-server:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Set up kind
+        uses: helm/kind-action@v1
+        with:
+          version: v0.24.0
+          cluster_name: synchrotron-smoke
+
+      - name: Side-load image into kind
+        run: kind load docker-image synchrotron-server:smoke --name synchrotron-smoke
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Install synchrotron
+        run: |
+          kubectl create namespace synchrotron-system
+          helm install synchrotron deploy/charts/synchrotron \
+            --namespace synchrotron-system \
+            --set image.repository=synchrotron-server \
+            --set image.tag=smoke \
+            --set image.pullPolicy=IfNotPresent \
+            --set persistence.enabled=false \
+            --wait --timeout 4m
+
+      - name: Verify rollout + API
+        run: |
+          kubectl -n synchrotron-system get deploy synchrotron \
+            -o jsonpath='{.status.readyReplicas}{"\n"}'
+          kubectl -n synchrotron-system rollout status deploy/synchrotron --timeout=2m
+
+          # Port-forward to the API and exercise the health probes.
+          kubectl -n synchrotron-system port-forward svc/synchrotron 8484:8484 &
+          PF_PID=$!
+          # Give the forward a moment to come up; curl the probes.
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8484/healthz; then
+              break
+            fi
+            sleep 1
+          done
+          # /healthz returns plain "ok"; /readyz returns JSON
+          # ({"ready": true, "components": {...}}). Both are 200 on
+          # success and curl -fS fails on non-200.
+          curl -fsS http://127.0.0.1:8484/healthz | tee /dev/stderr | grep -q "ok"
+          curl -fsS http://127.0.0.1:8484/readyz  | tee /dev/stderr | grep -q '"ready":true'
+          kill $PF_PID || true
+
+      - name: Show controller logs (always)
+        if: always()
+        run: |
+          kubectl -n synchrotron-system get pods -o wide
+          kubectl -n synchrotron-system logs deploy/synchrotron --tail=200 || true
