@@ -59,6 +59,11 @@ spec:
             - -c
             - |
               set -eu
+              # alpine/git ships base git but not git-daemon (it's a
+              # separate apk package on Alpine). Install at start;
+              # the package is small and apk metadata is in the
+              # layer already.
+              apk add --no-cache git-daemon >/dev/null
               exec git daemon \
                 --reuseaddr \
                 --base-path=/srv/git \
