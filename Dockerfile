@@ -12,7 +12,13 @@
 # its own emulated container. Slower than a real cross-compile but
 # trivially correct.
 
-FROM --platform=$BUILDPLATFORM rust:1.95-bookworm AS builder
+FROM rust:1.95-bookworm AS builder
+# No `--platform=$BUILDPLATFORM` — that would force the builder to
+# run on the host arch and cross-compile to TARGETARCH, which would
+# need an aarch64-linux-musl-gcc cross-toolchain the rust base
+# image doesn't ship. Instead let buildx run the builder natively
+# on each platform (under QEMU for the non-host arch). Slower, but
+# trivially correct.
 ARG TARGETARCH
 RUN apt-get update \
  && apt-get install -y --no-install-recommends musl-tools pkg-config \
