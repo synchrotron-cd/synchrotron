@@ -15,24 +15,48 @@ use synchrotron_server::api::{self, AppsState};
 use tokio::net::TcpListener;
 use tokio::time::timeout;
 
-/// Boot a server on a random local port and return its base URL plus
-/// the join handle. The handle aborts on drop, taking the server
-/// down at the end of each test.
-async fn spawn_server() -> (String, tokio::task::JoinHandle<()>) {
+/// Boot a server on a random local port and return its base URL,
+/// the join handle, and the bus (so tests can poll for subscriber
+/// counts when they need to synchronize with watch endpoints
+/// instead of using sleep). The handle aborts on drop, taking the
+/// server down at the end of each test.
+///
+/// Returning the bus solves the `watch`-test flake (synchrotron-cd-amv):
+/// the SSE endpoint adds a bus subscriber when the connection is
+/// established, so polling `bus.subscriber_count()` is a precise
+/// synchronization point — no more "sleep 150 ms and hope".
+async fn spawn_server() -> (String, tokio::task::JoinHandle<()>, EventBus) {
     let db = Database::open_in_memory().unwrap();
     let bus = EventBus::new(64);
-    let apps_state = AppsState::new(db, bus);
+    let apps_state = AppsState::new(db, bus.clone());
     let app = api::router_with_apps(apps_state);
 
+    // TcpListener::bind returns once the kernel listen queue is
+    // open; subsequent connect calls block-then-succeed even before
+    // the spawned `serve` task calls accept. So no warmup sleep is
+    // needed before the CLI dials.
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let handle = tokio::spawn(async move {
         serve(listener, app).await.unwrap();
     });
-    // Tiny pause so the listener is in the kernel's accept queue
-    // before the CLI dials.
-    tokio::time::sleep(Duration::from_millis(20)).await;
-    (format!("http://{addr}"), handle)
+    (format!("http://{addr}"), handle, bus)
+}
+
+/// Poll until the bus has at least `n` subscribers, with a 5s
+/// ceiling. Used by the watch test to wait for the SSE endpoint to
+/// have actually subscribed before triggering an event.
+async fn wait_for_subscribers(bus: &EventBus, n: usize) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while bus.subscriber_count() < n {
+        if tokio::time::Instant::now() >= deadline {
+            panic!(
+                "timed out waiting for {n} subscriber(s); have {}",
+                bus.subscriber_count()
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 }
 
 /// Path to the freshly-built `synchrotron` binary.
@@ -54,7 +78,7 @@ fn run_cli(server: &str, args: &[&str]) -> (bool, String, String) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn health_command_returns_ok() {
-    let (server, handle) = spawn_server().await;
+    let (server, handle, _bus) = spawn_server().await;
     let (ok, stdout, stderr) = run_cli(&server, &["--output", "json", "health"]);
     assert!(ok, "cli failed: stderr={stderr}");
     let json: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
@@ -64,7 +88,7 @@ async fn health_command_returns_ok() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn app_lifecycle_create_list_get_history_delete() {
-    let (server, handle) = spawn_server().await;
+    let (server, handle, _bus) = spawn_server().await;
 
     // create
     let (ok, _, stderr) = run_cli(
@@ -128,7 +152,7 @@ async fn app_lifecycle_create_list_get_history_delete() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sync_emits_accepted_envelope() {
-    let (server, handle) = spawn_server().await;
+    let (server, handle, _bus) = spawn_server().await;
     let _ = run_cli(
         &server,
         &[
@@ -161,7 +185,7 @@ async fn sync_emits_accepted_envelope() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn nonexistent_app_returns_nonzero_with_server_message() {
-    let (server, handle) = spawn_server().await;
+    let (server, handle, _bus) = spawn_server().await;
     let (ok, _stdout, stderr) = run_cli(&server, &["app", "get", "ghost"]);
     assert!(!ok, "expected failure for missing app");
     assert!(
@@ -173,7 +197,7 @@ async fn nonexistent_app_returns_nonzero_with_server_message() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn watch_streams_events_and_exits_on_close() {
-    let (server, handle) = spawn_server().await;
+    let (server, handle, bus) = spawn_server().await;
     let _ = run_cli(
         &server,
         &[
@@ -209,8 +233,11 @@ async fn watch_streams_events_and_exits_on_close() {
         .spawn()
         .unwrap();
 
-    // Give the watcher time to subscribe before we trigger an event.
-    tokio::time::sleep(Duration::from_millis(150)).await;
+    // Wait for the watcher to actually subscribe to the bus before
+    // we trigger. Without this the published event can race past an
+    // unsubscribed consumer; the broadcast channel only delivers to
+    // active subscribers at publish time.
+    wait_for_subscribers(&bus, 1).await;
     let _ = run_cli(&server, &["sync", "web"]);
 
     // Read until we see one event line, with a 3s ceiling.

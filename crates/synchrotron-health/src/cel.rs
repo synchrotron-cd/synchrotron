@@ -132,11 +132,7 @@ impl CelRule {
             let _ = tx.send(result);
         });
 
-        match rx.recv_timeout(timeout) {
-            Ok(Ok(v)) => parse_health_value(&v),
-            Ok(Err(e)) => Err(CelEvalError::Execution(e.to_string())),
-            Err(_) => Err(CelEvalError::Timeout(timeout)),
-        }
+        map_recv_result(timeout, rx.recv_timeout(timeout))
     }
 
     pub fn source(&self) -> &str {
@@ -149,6 +145,27 @@ impl std::fmt::Debug for CelRule {
         f.debug_struct("CelRule")
             .field("source", &self.source)
             .finish()
+    }
+}
+
+/// Map an `mpsc::recv_timeout` outcome to a [`CelEvalError`].
+/// Both `Timeout` and `Disconnected` collapse to
+/// [`CelEvalError::Timeout`] — `Disconnected` means the eval thread
+/// crashed before sending, which is just as much a "we never got a
+/// result within the budget" outcome from the caller's POV. Lifted
+/// out so the deterministic unit tests below can exercise it
+/// without the timing race the original eval-driven test had.
+fn map_recv_result(
+    timeout: Duration,
+    received: Result<
+        Result<cel_interpreter::Value, cel_interpreter::ExecutionError>,
+        mpsc::RecvTimeoutError,
+    >,
+) -> Result<HealthStatusCode, CelEvalError> {
+    match received {
+        Ok(Ok(v)) => parse_health_value(&v),
+        Ok(Err(e)) => Err(CelEvalError::Execution(e.to_string())),
+        Err(_) => Err(CelEvalError::Timeout(timeout)),
     }
 }
 
@@ -394,17 +411,52 @@ mod tests {
         }
     }
 
+    // The original `timeout_is_surfaced_when_eval_exceeds_budget`
+    // test ran the real `CelRule::eval` with a 0-ns budget and
+    // expected `Err(Timeout)`. CEL completes in microseconds, so
+    // the spawned eval thread routinely beat `recv_timeout(0)` to
+    // the channel and the test failed on slow CI runners (see
+    // synchrotron-cd-04t). The deterministic replacements below
+    // cover the same plumbing — the recv-result → CelEvalError
+    // mapping — by feeding `map_recv_result` directly.
+
     #[test]
-    #[ignore = "racy on slow CI runners; the spawned eval thread can finish \
-                and queue its result on the channel before recv_timeout(0) \
-                gets a chance to look. The plumbing it asserts \
-                (RecvTimeoutError::Timeout → CelEvalError::Timeout) is just \
-                a one-line mapping of std behavior."]
-    fn timeout_is_surfaced_when_eval_exceeds_budget() {
-        let rule = CelRule::compile(WIDGET_RULE).unwrap();
-        let err = rule
-            .eval(&widget("Ready"), Duration::from_nanos(0))
-            .unwrap_err();
-        assert!(matches!(err, CelEvalError::Timeout(_)));
+    fn map_recv_result_timeout_yields_cel_timeout() {
+        let timeout = Duration::from_millis(123);
+        let mapped = map_recv_result(timeout, Err(mpsc::RecvTimeoutError::Timeout));
+        match mapped {
+            Err(CelEvalError::Timeout(d)) => assert_eq!(d, timeout),
+            other => panic!("expected Timeout({timeout:?}), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn map_recv_result_disconnected_also_yields_timeout() {
+        // The eval thread panicked before sending. From the
+        // caller's perspective that's still "no result in the
+        // budget"; surface as Timeout so retry logic doesn't have
+        // to special-case it.
+        let mapped = map_recv_result(
+            Duration::from_millis(50),
+            Err(mpsc::RecvTimeoutError::Disconnected),
+        );
+        assert!(matches!(mapped, Err(CelEvalError::Timeout(_))));
+    }
+
+    #[test]
+    fn map_recv_result_execution_error_round_trips() {
+        let exec_err = cel_interpreter::ExecutionError::FunctionError {
+            function: "x".into(),
+            message: "boom".into(),
+        };
+        let mapped = map_recv_result(Duration::from_millis(50), Ok(Err(exec_err)));
+        assert!(matches!(mapped, Err(CelEvalError::Execution(s)) if s.contains("boom")));
+    }
+
+    #[test]
+    fn map_recv_result_ok_string_parses_health() {
+        let v = cel_interpreter::Value::String(std::sync::Arc::new("Healthy".into()));
+        let mapped = map_recv_result(Duration::from_millis(50), Ok(Ok(v)));
+        assert_eq!(mapped.unwrap(), HealthStatusCode::Healthy);
     }
 }
