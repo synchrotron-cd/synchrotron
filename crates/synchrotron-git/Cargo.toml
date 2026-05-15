@@ -13,7 +13,7 @@ tracing.workspace = true
 git2 = { version = "0.20", default-features = false, features = ["vendored-libgit2", "vendored-openssl", "https", "ssh"] }
 sha2 = "0.10"
 sha1 = "0.10"
-hmac = "0.12"
+hmac = "0.13"
 subtle = "2"
 hex = "0.4"
 base64 = "0.22"
