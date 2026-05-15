@@ -27,6 +27,28 @@ pub struct Config {
     pub timeouts: Timeouts,
     #[serde(default)]
     pub git: GitSection,
+    #[serde(default)]
+    pub secrets: SecretsSection,
+}
+
+/// Where to resolve `RepoCfg.credentials_secret` lookups from
+/// (synchrotron-cd-u0o). The configured backends are tried in
+/// order: env first, then file. Both are optional; with neither
+/// set the secret store is a no-op (any non-None
+/// `credentials_secret` will fail at startup, surfacing the
+/// missing config loudly).
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct SecretsSection {
+    /// Environment variable prefix. Set to `Some("SYNCHROTRON_SECRET_")`
+    /// (or similar) to enable env-backed resolution; `None` disables.
+    #[serde(default)]
+    pub env_prefix: Option<String>,
+    /// Filesystem directory holding one file per secret. Use the
+    /// kube `volumeMounts.subPath` pattern to project a Secret into
+    /// `<this dir>/<secret name>`.
+    #[serde(default)]
+    pub file_dir: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]

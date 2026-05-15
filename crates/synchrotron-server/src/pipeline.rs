@@ -29,12 +29,6 @@
 //!
 //! What this module does NOT yet do:
 //!
-//! - **Secret-store resolution.** `RepoCfg.credentials_secret`
-//!   names a secret; resolving it is a layer that doesn't exist
-//!   yet (filed separately). For now repos use
-//!   [`Credentials::None`] — fine for public repos / local file
-//!   fixtures / the v18 smoke test, insufficient for private
-//!   GitHub.
 //! - **Seed render at startup.** Apps that exist before the first
 //!   poll see an empty DesiredStore until their repo polls. The
 //!   first poll cycle fills the cache; users wanting an instant
@@ -49,6 +43,7 @@ use std::sync::{Arc, Mutex};
 
 use synchrotron_core::db::Database;
 use synchrotron_core::events::{EventBus, SystemEvent};
+use synchrotron_core::secrets::{SecretError, SecretStore};
 use synchrotron_git::poller::fetch_fn_from_client;
 use synchrotron_git::{
     Credentials, GitClient, PollEvent, Poller, PollerConfig, Repo, Sha, Workspace,
@@ -79,6 +74,12 @@ pub struct PipelineDeps {
     pub desired_store: Arc<DesiredStore>,
     pub db: Arc<Mutex<Database>>,
     pub bus: EventBus,
+    /// Resolves `RepoCfg.credentials_secret` into [`Credentials`].
+    /// Slice u0o; defaults to a `NoopSecretStore`-backed one when
+    /// the operator hasn't configured any backend, in which case
+    /// any `credentials_secret = Some(...)` aborts the
+    /// pipeline build.
+    pub secrets: Arc<dyn SecretStore>,
 }
 
 /// Wire the pipeline. Spawns one Poller and one bridge task per
@@ -88,7 +89,8 @@ pub struct PipelineDeps {
 /// parallel, which we'll do once we feel the pinch), then the
 /// single render loop.
 pub fn spawn(deps: PipelineDeps) -> PipelineHandles {
-    let url_by_repo_id: HashMap<String, Repo> = build_repo_map(&deps.repos, &deps.git_client);
+    let url_by_repo_id: HashMap<String, Repo> =
+        build_repo_map(&deps.repos, &deps.git_client, deps.secrets.as_ref());
 
     let mut pollers = Vec::with_capacity(url_by_repo_id.len());
     let mut bridges = Vec::with_capacity(url_by_repo_id.len());
@@ -117,14 +119,30 @@ pub fn spawn(deps: PipelineDeps) -> PipelineHandles {
     }
 }
 
-fn build_repo_map(cfgs: &[RepoCfg], client: &GitClient) -> HashMap<String, Repo> {
+fn build_repo_map(
+    cfgs: &[RepoCfg],
+    client: &GitClient,
+    secrets: &dyn SecretStore,
+) -> HashMap<String, Repo> {
     let mut out = HashMap::with_capacity(cfgs.len());
     for r in cfgs {
         let url = synchrotron_types::RepoUrl(r.url.clone());
         let branch = r.branch.clone().unwrap_or_else(|| "main".to_string());
-        // Credentials secret resolution isn't wired yet — see module
-        // doc. Public repos and the smoke fixture work with None.
-        let repo = Repo::new(url, branch, Credentials::None);
+        let creds = match resolve_credentials(r.credentials_secret.as_deref(), secrets) {
+            Ok(c) => c,
+            Err(e) => {
+                // Don't kill the whole server for one bad repo, but
+                // be loud — fetches will fail without creds.
+                warn!(
+                    repo = %r.url,
+                    secret = ?r.credentials_secret,
+                    error = %e,
+                    "credentials resolution failed; falling back to anonymous (fetches will likely fail)"
+                );
+                Credentials::None
+            }
+        };
+        let repo = Repo::new(url, branch, creds);
         // Pre-clone so the first poll's diff against the bare repo
         // has somewhere to land. ensure_cloned is idempotent.
         if let Err(e) = client.ensure_cloned(&repo) {
@@ -133,6 +151,31 @@ fn build_repo_map(cfgs: &[RepoCfg], client: &GitClient) -> HashMap<String, Repo>
         out.insert(repo.id.as_str().to_string(), repo);
     }
     out
+}
+
+/// Resolve a `credentials_secret` reference into a typed
+/// [`Credentials`]. The secret value is parsed as JSON first, then
+/// YAML — operators tend to put kubeconfig-shaped YAML into k8s
+/// Secrets, while CI tooling tends to produce JSON.
+fn resolve_credentials(
+    secret_name: Option<&str>,
+    secrets: &dyn SecretStore,
+) -> Result<Credentials, ResolveCredsError> {
+    let Some(name) = secret_name else {
+        return Ok(Credentials::None);
+    };
+    let value = secrets.get(name).map_err(ResolveCredsError::Lookup)?;
+    serde_json::from_str::<Credentials>(&value)
+        .or_else(|_| serde_yaml_ng::from_str::<Credentials>(&value))
+        .map_err(|e| ResolveCredsError::Parse(e.to_string()))
+}
+
+#[derive(Debug, thiserror::Error)]
+enum ResolveCredsError {
+    #[error("secret lookup failed: {0}")]
+    Lookup(#[from] SecretError),
+    #[error("secret parse failed: {0}")]
+    Parse(String),
 }
 
 /// Translate one Poller's events into bus publishes.

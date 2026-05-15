@@ -4,6 +4,9 @@ use tracing::{info, warn};
 
 use synchrotron_core::events::EventBus;
 use synchrotron_core::metrics::Metrics;
+use synchrotron_core::secrets::{
+    CompositeSecretStore, EnvSecretStore, FileSecretStore, NoopSecretStore, SecretStore,
+};
 use synchrotron_core::telemetry::{init as telemetry_init, TelemetryConfig};
 use synchrotron_kube::{
     spawn_default_informers, AuthSource, ClusterConfig as KubeClusterConfig, KubeApplierAdapter,
@@ -45,6 +48,28 @@ impl AppResolver for DbAppResolver {
                 Vec::new()
             }
         }
+    }
+}
+
+/// Compose a [`SecretStore`] from cfg.secrets. Backend ordering:
+/// env first (cheaper to read, easier to override per-pod), then
+/// file (the bulk source from k8s Secret mounts). Both backends
+/// are optional; when neither is set, returns a NoopSecretStore so
+/// any non-`None` credentials_secret fails loudly with NotFound.
+fn build_secret_store(cfg: &synchrotron_server::config::SecretsSection) -> Arc<dyn SecretStore> {
+    let mut stores: Vec<Box<dyn SecretStore>> = Vec::new();
+    if let Some(prefix) = &cfg.env_prefix {
+        stores.push(Box::new(EnvSecretStore::new(prefix.clone())));
+    }
+    if let Some(dir) = &cfg.file_dir {
+        stores.push(Box::new(FileSecretStore::new(dir.clone())));
+    }
+    if stores.is_empty() {
+        info!("secrets: no backend configured; credentials_secret refs will fail");
+        Arc::new(NoopSecretStore)
+    } else {
+        info!(backends = stores.len(), "secret store composed");
+        Arc::new(CompositeSecretStore::new(stores))
     }
 }
 
@@ -305,6 +330,11 @@ async fn main() -> anyhow::Result<()> {
     );
     git_workspace.ensure_layout()?;
     let git_client = Arc::new(synchrotron_git::GitClient::new(git_workspace.clone()));
+    // Secret resolver (synchrotron-cd-u0o). Operators wire env or
+    // file backends via cfg.secrets; if neither is configured the
+    // resolver is a no-op and any RepoCfg.credentials_secret will
+    // surface "not found" loudly at startup.
+    let secret_store: Arc<dyn SecretStore> = build_secret_store(&cfg.secrets);
     let _pipeline = pipeline::spawn(pipeline::PipelineDeps {
         repos: cfg.repos.clone(),
         polling: cfg.polling.clone(),
@@ -314,6 +344,7 @@ async fn main() -> anyhow::Result<()> {
         desired_store: desired_store.clone(),
         db: apps_state.db.clone(),
         bus: bus.clone(),
+        secrets: secret_store,
     });
     info!(repos = cfg.repos.len(), "render pipeline spawned");
 
