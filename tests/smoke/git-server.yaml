@@ -1,0 +1,92 @@
+# Tiny in-cluster git server for the smoke workflow
+# (synchrotron-cd-3sk). Runs `git daemon` on :9418 over a bare
+# repo populated from the fixture ConfigMap. The controller
+# fetches via `git://git-server.synchrotron-system.svc:9418/sample.git`.
+#
+# Image: alpine/git — well-known small image, just `apk add git`
+# under the hood; ~30 MB. The init container runs once per pod
+# start to materialize the bare repo from the mounted fixture;
+# the main container serves it.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: git-server
+  namespace: synchrotron-system
+  labels: { app: git-server }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: git-server } }
+  template:
+    metadata: { labels: { app: git-server } }
+    spec:
+      initContainers:
+        - name: init-repo
+          image: alpine/git:latest
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              # Bare repo lives on the shared emptyDir.
+              mkdir -p /srv/git/sample.git
+              cd /srv/git/sample.git
+              git init --bare -b main
+              # Touch the export-ok marker so `git daemon`
+              # serves it (--export-all also covers this; belt
+              # and suspenders).
+              touch git-daemon-export-ok
+              # Materialize a worktree from the fixture and push
+              # it back into the bare repo.
+              mkdir -p /tmp/work/manifests
+              cp /fixture/cm.yaml /tmp/work/manifests/cm.yaml
+              cd /tmp/work
+              git init -q -b main
+              git config user.email smoke@synchrotron-cd.example
+              git config user.name "synchrotron smoke"
+              git add .
+              git commit -q -m "initial fixture"
+              git push -q file:///srv/git/sample.git main
+              echo "ready"
+          volumeMounts:
+            - { name: data, mountPath: /srv/git }
+            - { name: fixture, mountPath: /fixture }
+      containers:
+        - name: gitd
+          image: alpine/git:latest
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              exec git daemon \
+                --reuseaddr \
+                --base-path=/srv/git \
+                --export-all \
+                --enable=upload-pack \
+                --verbose \
+                --listen=0.0.0.0
+          ports:
+            - { name: git, containerPort: 9418 }
+          readinessProbe:
+            tcpSocket: { port: 9418 }
+            initialDelaySeconds: 2
+            periodSeconds: 2
+          volumeMounts:
+            - { name: data, mountPath: /srv/git }
+      volumes:
+        - { name: data, emptyDir: {} }
+        - name: fixture
+          configMap:
+            name: smoke-fixture
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: git-server
+  namespace: synchrotron-system
+spec:
+  type: ClusterIP
+  selector: { app: git-server }
+  ports:
+    - { name: git, port: 9418, targetPort: 9418 }

@@ -76,42 +76,94 @@ jobs:
         with:
           version: v3.16.2
 
-      - name: Install synchrotron
+      - name: Stage in-cluster git server
         run: |
+          # synchrotron-cd-3sk: the controller fetches by URL, so a
+          # local file:// from outside the pod won't work. Spin up
+          # a tiny `git daemon` Deployment in-cluster pre-loaded
+          # from the fixture ConfigMap.
           kubectl create namespace synchrotron-system
+          kubectl -n synchrotron-system create configmap smoke-fixture \
+            --from-file=cm.yaml=tests/smoke/cm.yaml
+          kubectl apply -f tests/smoke/git-server.yaml
+          kubectl -n synchrotron-system rollout status deploy/git-server --timeout=120s
+
+      - name: Install synchrotron pointing at in-cluster git server
+        run: |
+          # Configure the controller with one repo (the in-cluster
+          # git daemon URL) and one plugin (raw — parses .yaml/.yml
+          # files in source path). Application is created via the
+          # API after install since the chart only carries static
+          # config; apps are runtime data.
           helm install synchrotron deploy/charts/synchrotron \
             --namespace synchrotron-system \
             --set image.repository=synchrotron-server \
             --set image.tag=smoke \
             --set image.pullPolicy=IfNotPresent \
             --set persistence.enabled=false \
+            --set-json 'config.repos=[{"id":"sample","url":"git://git-server.synchrotron-system.svc:9418/sample.git","branch":"main"}]' \
+            --set-json 'config.plugins=[{"name":"raw","kind":"raw","config":null}]' \
+            --set 'config.polling.repo_interval_seconds=10' \
             --wait --timeout 4m
 
-      - name: Verify rollout + API
+      - name: Verify rollout + create Application
         run: |
-          kubectl -n synchrotron-system get deploy synchrotron \
-            -o jsonpath='{.status.readyReplicas}{"\n"}'
           kubectl -n synchrotron-system rollout status deploy/synchrotron --timeout=2m
-
-          # Port-forward to the API and exercise the health probes.
           kubectl -n synchrotron-system port-forward svc/synchrotron 8484:8484 &
           PF_PID=$!
-          # Give the forward a moment to come up; curl the probes.
           for i in $(seq 1 30); do
-            if curl -fsS --max-time 2 http://127.0.0.1:8484/healthz; then
-              break
-            fi
+            if curl -fsS --max-time 2 http://127.0.0.1:8484/healthz; then break; fi
             sleep 1
           done
           # /healthz returns plain "ok"; /readyz returns JSON
-          # ({"ready": true, "components": {...}}). Both are 200 on
-          # success and curl -fS fails on non-200.
+          # ({"ready": true, "components": {...}}). curl -fS fails
+          # on non-200.
           curl -fsS http://127.0.0.1:8484/healthz | tee /dev/stderr | grep -q "ok"
           curl -fsS http://127.0.0.1:8484/readyz  | tee /dev/stderr | grep -q '"ready":true'
+
+          # Create the smoke Application via the API. Once it lands
+          # the controller's pollers have a target; the render loop
+          # will pick it up on the next RepoChanged.
+          curl -fsS -X POST -H 'content-type: application/json' \
+            -d '{
+              "name":"smoke-app",
+              "namespace":"default",
+              "repo_url":"git://git-server.synchrotron-system.svc:9418/sample.git",
+              "path":"manifests",
+              "target_revision":"main",
+              "dest_cluster":"in-cluster",
+              "dest_namespace":"default"
+            }' \
+            http://127.0.0.1:8484/api/v1/apps
           kill $PF_PID || true
 
-      - name: Show controller logs (always)
+      - name: Wait for the rendered ConfigMap to land
+        run: |
+          # No manual trigger needed: the poller is configured at
+          # 10s above, so within seconds the controller will fetch
+          # the in-cluster repo, render via the raw plugin, push
+          # into the DesiredStore, and reconcile/apply against the
+          # in-cluster kube context. Poll the cluster for the
+          # rendered ConfigMap.
+          for i in $(seq 1 48); do
+            if kubectl -n default get configmap synchrotron-smoke-cm \
+                -o jsonpath='{.data.marker}' 2>/dev/null \
+                | grep -q "v1"; then
+              echo "rendered ConfigMap landed after ${i}*5s"
+              kubectl -n default get configmap synchrotron-smoke-cm -o yaml
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "ConfigMap synchrotron-smoke-cm did not land within 240s"
+          exit 1
+
+      - name: Show controller + git-server logs (always)
         if: always()
         run: |
           kubectl -n synchrotron-system get pods -o wide
-          kubectl -n synchrotron-system logs deploy/synchrotron --tail=200 || true
+          echo "--- synchrotron logs ---"
+          kubectl -n synchrotron-system logs deploy/synchrotron --tail=300 || true
+          echo "--- git-server logs ---"
+          kubectl -n synchrotron-system logs deploy/git-server --tail=80 || true
+          kubectl -n default get configmap || true

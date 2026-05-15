@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: synchrotron-smoke-cm
+  namespace: default
+  labels:
+    synchrotron.io/app: smoke-app
+data:
+  marker: "v1"
+  source: "synchrotron smoke fixture"
