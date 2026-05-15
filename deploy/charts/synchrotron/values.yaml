@@ -13,7 +13,9 @@ fullnameOverride: ""
 
 image:
   # -- Container image repository for `synchrotron-server`.
-  repository: ghcr.io/jsightler/synchrotron-server
+  # Built and pushed by .github/workflows/docker.yml on pushes to
+  # main and on `v*` tags.
+  repository: ghcr.io/synchrotron-cd/synchrotron-server
   # -- Image pull policy. `IfNotPresent` is correct for tagged
   # releases; switch to `Always` when running `:latest`.
   pullPolicy: IfNotPresent

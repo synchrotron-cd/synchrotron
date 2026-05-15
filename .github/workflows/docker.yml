@@ -1,0 +1,95 @@
+name: docker
+
+# Build (and on non-PR refs, push) the synchrotron-server container
+# image to ghcr.io.
+#
+# Triggers:
+#   - PR  → build amd64 only (validation; no push). Catches
+#           Dockerfile breakage early without burning multi-arch
+#           CPU on every change.
+#   - push to main → build + push linux/amd64 + linux/arm64,
+#           tagged `main` and `latest`.
+#   - tag v*       → build + push multi-arch with the SemVer tags
+#           (1, 1.2, 1.2.3) plus `latest`.
+
+on:
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'Dockerfile'
+      - '.github/workflows/docker.yml'
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'Dockerfile'
+      - '.github/workflows/docker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/synchrotron-server
+
+jobs:
+  build:
+    name: build (${{ github.event_name == 'pull_request' && 'pr' || 'push' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        if: github.event_name != 'pull_request'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+
+      - name: Build & ${{ github.event_name == 'pull_request' && 'validate' || 'push' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          # PR builds stick to one arch to keep validation fast.
+          # Push builds go multi-arch via QEMU for arm64.
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Cache layers across runs so Cargo doesn't re-resolve
+          # every dependency from scratch (~15 minutes saved on
+          # warm builds).
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
