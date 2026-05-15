@@ -126,6 +126,72 @@ The implementation is split across 13 workspace crates, each with a focused resp
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
+### Runtime topology (as-built)
+
+The diagram above is the conceptual view. The mermaid graph below
+reflects what `synchrotron-server::main` actually constructs at
+startup as of the wire-pipeline epic (`synchrotron-cd-1ej`). Boxes
+are typed components living in concrete crates; arrows are owning /
+calling / event-bus relationships.
+
+```mermaid
+flowchart LR
+  subgraph desired["desired-state side"]
+    direction TB
+    GitPoller["Pollers<br/>(synchrotron-git)"]
+    Bridge["Bus bridge<br/>(synchrotron-server::pipeline)"]
+    Renderer["AppRenderer<br/>(synchrotron-plugins)"]
+    AppCache["AppCache (LRU)"]
+    DesiredStore["DesiredStore<br/>(synchrotron-reconcile)"]
+    GitPoller -- "PollEvent::Fetched" --> Bridge
+    Bridge -- "RepoChanged" --> Bus
+    Bridge -. "RepoFetchFailed" .-> Bus
+    Renderer --> AppCache
+    Renderer -- "Arc<[Manifest]>" --> DesiredStore
+  end
+
+  subgraph live["live-state side"]
+    direction TB
+    Informers["Informers<br/>(per cluster × GVK)"]
+    Updater["LiveStoreUpdater"]
+    LiveStore["LiveStore<br/>(synchrotron-kube)"]
+    Informers -- "InformerEvent" --> Updater
+    Updater --> LiveStore
+  end
+
+  Bus["EventBus<br/>(synchrotron-core)"]
+  Trigger["EventTrigger<br/>(synchrotron-reconcile)"]
+  Pool["WorkerPool<br/>(64-way, per-app FIFO)"]
+  Reconciler["Reconciler<br/>(plan + apply)"]
+  Plan["plan() — desired vs live"]
+  Wave["execute_waves<br/>(KubeApplierAdapter)"]
+  KApply["KubeSsaApplier"]
+  Cluster["Kubernetes API<br/>(per cluster)"]
+
+  Bus --> Trigger
+  Trigger -- "AppName" --> Pool
+  Pool --> Reconciler
+  DesiredStore --> Reconciler
+  LiveStore --> Reconciler
+  Reconciler --> Plan
+  Reconciler --> Wave
+  Wave --> KApply
+  KApply -- "SSA" --> Cluster
+  Cluster -. "watch" .-> Informers
+  Reconciler -. "SyncOutcome" .-> Bus
+
+  classDef ext fill:#eef,stroke:#88a,stroke-width:1px;
+  class Cluster ext;
+```
+
+The render-loop driver inside `synchrotron-server::pipeline`
+materializes the repo at the new HEAD into the workspace, runs each
+affected app through the AppRenderer, and `put`s the rendered
+`Arc<[Manifest]>` into the DesiredStore. Each cluster's
+ApplierAdapter and informer set are constructed from
+`cfg.clusters[*]` at startup; clusters that fail to connect stay
+plan-only (no informers, no apply).
+
 ## Application Model
 
 Users define applications via Kubernetes CRDs (primary) or standalone config files (for bootstrap / non-k8s use).
