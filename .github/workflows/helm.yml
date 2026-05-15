@@ -69,18 +69,24 @@ jobs:
 
       - name: Install chart
         run: |
-          # Skip pulling the real image — it's not yet published. Use a
-          # placeholder that won't crashloop the API server. The point
-          # of this job is to verify CRDs + RBAC + manifests apply
-          # cleanly; runtime startup is exercised in the controller's
-          # own integration tests.
+          # Use registry.k8s.io/pause as a placeholder so we don't
+          # depend on the synchrotron-server image being already
+          # published (chicken-and-egg with docker.yml). The point of
+          # this job is to verify CRDs + RBAC + manifests apply
+          # cleanly. We do NOT use `--wait` because pause doesn't
+          # serve /readyz; runtime startup is covered by ci.yml +
+          # kind.yml. Verifying-the-rollout would need the real
+          # image, which is what 2j9 (v0.1 release) sets up.
           kubectl create namespace synchrotron-system
           helm install synchrotron deploy/charts/synchrotron \
             --namespace synchrotron-system \
             --set image.repository=registry.k8s.io/pause \
             --set image.tag=3.9 \
-            --set persistence.enabled=false \
-            --wait --timeout 3m
+            --set persistence.enabled=false
+          # Sanity-check the API objects landed without checking
+          # they became ready.
+          kubectl -n synchrotron-system get all
+          kubectl -n synchrotron-system get configmap,sa,rolebinding
 
       - name: Verify resources
         run: |
