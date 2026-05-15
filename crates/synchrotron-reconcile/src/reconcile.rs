@@ -144,7 +144,17 @@ pub struct Reconciler {
     live: Arc<dyn LiveSource>,
     bus: EventBus,
     metrics: Option<Arc<Metrics>>,
-    executor: Option<Arc<ReconcileExecutor>>,
+    /// Default executor used when no per-cluster override matches.
+    /// Tests and benches typically register one of these via
+    /// [`Self::with_executor`]; production registers per-cluster
+    /// executors via [`Self::with_cluster_executor`] and leaves
+    /// `default_executor` unset.
+    default_executor: Option<Arc<ReconcileExecutor>>,
+    /// Per-cluster executor map. Lookup at reconcile time: a hit
+    /// here wins over `default_executor`. Empty map + no default =
+    /// plan-only reconcile (current synchrotron-server default
+    /// before slice 79e wired the kube applier).
+    cluster_executors: std::collections::HashMap<ClusterName, Arc<ReconcileExecutor>>,
 }
 
 impl Reconciler {
@@ -154,7 +164,8 @@ impl Reconciler {
             live,
             bus,
             metrics: None,
-            executor: None,
+            default_executor: None,
+            cluster_executors: std::collections::HashMap::new(),
         }
     }
 
@@ -167,13 +178,35 @@ impl Reconciler {
         self
     }
 
-    /// Attach an apply-side executor. Without this, only
-    /// [`Self::reconcile_app`] (plan-only) is meaningful;
-    /// [`Self::reconcile_and_apply_app`] degrades to plan-only when
-    /// no executor is configured.
+    /// Attach a default apply-side executor used for every cluster
+    /// that doesn't have a per-cluster override. Tests/benches that
+    /// have a single Applier register one of these; production
+    /// usually skips this and registers per-cluster via
+    /// [`Self::with_cluster_executor`].
     pub fn with_executor(mut self, executor: ReconcileExecutor) -> Self {
-        self.executor = Some(Arc::new(executor));
+        self.default_executor = Some(Arc::new(executor));
         self
+    }
+
+    /// Attach a per-cluster apply-side executor. Looked up by
+    /// `ClusterName` at reconcile time; wins over any default
+    /// registered via [`Self::with_executor`]. Production builds
+    /// one of these per `ClusterCfg` so each cluster gets its own
+    /// `kube::Client` + [`Applier`].
+    pub fn with_cluster_executor(
+        mut self,
+        cluster: ClusterName,
+        executor: ReconcileExecutor,
+    ) -> Self {
+        self.cluster_executors.insert(cluster, Arc::new(executor));
+        self
+    }
+
+    fn executor_for(&self, cluster: &ClusterName) -> Option<Arc<ReconcileExecutor>> {
+        self.cluster_executors
+            .get(cluster)
+            .cloned()
+            .or_else(|| self.default_executor.clone())
     }
 
     /// Run one reconcile pass for `app` against `cluster`.
@@ -275,8 +308,8 @@ impl Reconciler {
         let Some(plan_ref) = &outcome.plan else {
             return outcome; // planning already failed
         };
-        let Some(executor) = self.executor.clone() else {
-            return outcome; // plan-only mode
+        let Some(executor) = self.executor_for(cluster) else {
+            return outcome; // plan-only mode (no executor for this cluster)
         };
 
         // Re-fetch sources to group into waves. Both reads hit the
@@ -316,6 +349,8 @@ impl Reconciler {
             executor.applier.as_ref(),
             executor.health.as_ref(),
             &executor.config,
+            &desired,
+            &live,
         )
         .await;
 
@@ -593,6 +628,7 @@ mod tests {
         fn apply<'a>(
             &'a self,
             entry: &'a crate::plan::PlanEntry,
+            _manifest: Option<Manifest>,
         ) -> Pin<Box<dyn std::future::Future<Output = Result<(), ApplyError>> + Send + 'a>>
         {
             let resource = entry.resource.clone();
@@ -702,5 +738,47 @@ mod tests {
         let h = AlwaysHealthy;
         let status = h.health(&[]).await;
         assert_eq!(status, HealthStatusCode::Healthy);
+    }
+
+    #[tokio::test]
+    async fn per_cluster_executor_wins_over_default() {
+        let (desired_src, live_src, mut reconciler, _rx) = setup();
+        desired_src.set(
+            "app-a",
+            Ok(vec![manifest("ConfigMap", "cm-1", Some("default"), "v1")]),
+        );
+        live_src.set("app-a", "prod", Ok(vec![]));
+        live_src.set("app-a", "stage", Ok(vec![]));
+
+        // Default executor fails every apply; per-cluster `prod`
+        // executor succeeds. We're checking that prod's executor is
+        // the one consulted when reconciling on prod.
+        let default_apl = Arc::new(
+            RecordingApplier::default().fail_on(crate::plan::ResourceRef {
+                gvk: synchrotron_plugins::Gvk::parse("v1", "ConfigMap"),
+                namespace: Some("default".into()),
+                name: "cm-1".into(),
+            }),
+        );
+        let prod_apl = Arc::new(RecordingApplier::default());
+
+        reconciler = reconciler
+            .with_executor(executor_with(default_apl))
+            .with_cluster_executor(ClusterName("prod".into()), executor_with(prod_apl.clone()));
+
+        let out = reconciler
+            .reconcile_and_apply_app(&AppName("app-a".into()), &ClusterName("prod".into()))
+            .await;
+        assert!(
+            out.success(),
+            "prod-specific executor should succeed: {out:?}"
+        );
+        assert_eq!(prod_apl.calls.lock().unwrap().len(), 1);
+
+        // The default executor (which fails) should be used for `stage`.
+        let out_stage = reconciler
+            .reconcile_and_apply_app(&AppName("app-a".into()), &ClusterName("stage".into()))
+            .await;
+        assert!(!out_stage.success(), "stage falls back to failing default");
     }
 }

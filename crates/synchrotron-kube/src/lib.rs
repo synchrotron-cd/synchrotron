@@ -5,6 +5,7 @@
 //! ServiceAccount, OIDC refresh, exec credential plugins, health probes,
 //! informers, multi-cluster registry).
 
+pub mod applier_adapter;
 pub mod apply;
 mod client;
 mod config;
@@ -21,6 +22,7 @@ pub mod prune;
 mod registry;
 pub mod scaler_discovery;
 
+pub use applier_adapter::KubeApplierAdapter;
 pub use apply::{AppliedObject, ApplyError, ApplyOptions, KubeSsaApplier};
 pub use client::KubeClient;
 pub use config::{AuthSource, ClusterConfig, ClusterName};

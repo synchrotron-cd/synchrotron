@@ -151,10 +151,21 @@ pub fn group_into_waves(plan: &Plan, desired: &[Manifest], live: &[Manifest]) ->
 /// Applies a single plan entry against the cluster. A real
 /// implementation wraps kubectl-server-side-apply or the informer's
 /// writer; tests inject a recorder.
+///
+/// `manifest` carries the body to apply for [`PlannedAction::Apply`]
+/// entries (the desired version) and the live body for
+/// [`PlannedAction::Delete`] entries (so the implementation can
+/// honor e.g. `synchrotron.io/prune: false`). It's `None` for
+/// [`PlannedAction::NoOp`] entries, which never reach the applier
+/// in [`execute_waves`] anyway, and for test stubs that don't need
+/// the body — passing it through the trait is the cheapest way to
+/// avoid each `Applier` impl having to do its own
+/// `ResourceRef → Manifest` lookup.
 pub trait Applier: Send + Sync {
     fn apply<'a>(
         &'a self,
         entry: &'a PlanEntry,
+        manifest: Option<Manifest>,
     ) -> Pin<Box<dyn Future<Output = Result<(), ApplyError>> + Send + 'a>>;
 }
 
@@ -240,7 +251,25 @@ pub async fn execute_waves(
     applier: &dyn Applier,
     health: &dyn HealthChecker,
     cfg: &WaveExecConfig,
+    desired: &[Manifest],
+    live: &[Manifest],
 ) -> Result<WaveExecReport, WaveExecError> {
+    // Pre-index the manifest sets so we can hand the right body to
+    // each apply call without scanning. Cheap — both sides are
+    // small, and the build amortizes across every entry in the
+    // wave.
+    let desired_idx: HashMap<ResourceRef, &Manifest> =
+        desired.iter().map(|m| (ResourceRef::of(m), m)).collect();
+    let live_idx: HashMap<ResourceRef, &Manifest> =
+        live.iter().map(|m| (ResourceRef::of(m), m)).collect();
+    let manifest_for = |entry: &PlanEntry| -> Option<Manifest> {
+        match entry.action {
+            PlannedAction::Apply => desired_idx.get(&entry.resource).map(|m| (*m).clone()),
+            PlannedAction::Delete => live_idx.get(&entry.resource).map(|m| (*m).clone()),
+            PlannedAction::NoOp => None,
+        }
+    };
+
     let mut report = WaveExecReport::default();
     for wave in &plan.waves {
         let changed: Vec<&PlanEntry> = wave
@@ -250,7 +279,8 @@ pub async fn execute_waves(
             .collect();
 
         for entry in &changed {
-            if let Err(source) = applier.apply(entry).await {
+            let manifest = manifest_for(entry);
+            if let Err(source) = applier.apply(entry, manifest).await {
                 return Err(WaveExecError::ApplyFailed {
                     wave: wave.wave,
                     resource: entry.resource.clone(),
@@ -426,6 +456,7 @@ mod tests {
         fn apply<'a>(
             &'a self,
             entry: &'a PlanEntry,
+            _manifest: Option<Manifest>,
         ) -> Pin<Box<dyn Future<Output = Result<(), ApplyError>> + Send + 'a>> {
             let order = self.order.clone();
             let rref = entry.resource.clone();
@@ -505,7 +536,7 @@ mod tests {
             per_wave_timeout: Duration::from_secs(5),
             poll_interval: Duration::from_millis(5),
         };
-        let report = execute_waves(&wp, &applier, &health, &cfg)
+        let report = execute_waves(&wp, &applier, &health, &cfg, &[], &[])
             .await
             .expect("waves succeed");
 
@@ -538,7 +569,7 @@ mod tests {
             poll_interval: Duration::from_millis(10),
         };
 
-        execute_waves(&wp, &applier, &health, &cfg)
+        execute_waves(&wp, &applier, &health, &cfg, &[], &[])
             .await
             .expect("waves succeed");
 
@@ -566,7 +597,7 @@ mod tests {
             poll_interval: Duration::from_millis(10),
         };
 
-        let err = execute_waves(&wp, &applier, &StuckHealth, &cfg)
+        let err = execute_waves(&wp, &applier, &StuckHealth, &cfg, &[], &[])
             .await
             .expect_err("should time out");
         match err {
@@ -610,7 +641,7 @@ mod tests {
             order: order.clone(),
         };
         let cfg = WaveExecConfig::default();
-        let report = execute_waves(&wp, &applier, &ExplodingHealth, &cfg)
+        let report = execute_waves(&wp, &applier, &ExplodingHealth, &cfg, &[], &[])
             .await
             .expect("no-op wave succeeds");
         assert_eq!(report.completed_waves, vec![0]);
@@ -624,6 +655,7 @@ mod tests {
             fn apply<'a>(
                 &'a self,
                 _entry: &'a PlanEntry,
+                _manifest: Option<Manifest>,
             ) -> Pin<Box<dyn Future<Output = Result<(), ApplyError>> + Send + 'a>> {
                 Box::pin(async move { Err(ApplyError::new("denied")) })
             }
@@ -634,7 +666,7 @@ mod tests {
         let wp = group_into_waves(&p, std::slice::from_ref(&a), &[]);
         let cfg = WaveExecConfig::default();
 
-        let err = execute_waves(&wp, &FailingApplier, &StuckHealth, &cfg)
+        let err = execute_waves(&wp, &FailingApplier, &StuckHealth, &cfg, &[], &[])
             .await
             .expect_err("apply failure");
         match err {

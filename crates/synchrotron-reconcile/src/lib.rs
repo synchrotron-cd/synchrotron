@@ -38,7 +38,8 @@ pub use hooks::{
 pub use kind_order::{apply_priority, sort_within_wave, DEFAULT_PRIORITY};
 pub use plan::{plan, Plan, PlanEntry, PlannedAction, ResourceRef};
 pub use reconcile::{
-    DesiredSource, LiveSource, ReconcileError, ReconcileOutcome, Reconciler, SourceError,
+    AlwaysHealthy, DesiredSource, LiveSource, ReconcileError, ReconcileExecutor, ReconcileOutcome,
+    Reconciler, SourceError,
 };
 pub use trigger::{AppResolver, EventTrigger};
 pub use wave::{

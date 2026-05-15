@@ -5,11 +5,14 @@ use tracing::{info, warn};
 use synchrotron_core::events::EventBus;
 use synchrotron_core::metrics::Metrics;
 use synchrotron_core::telemetry::{init as telemetry_init, TelemetryConfig};
-use synchrotron_kube::{LiveStore, StoreLiveSource};
+use synchrotron_kube::{
+    AuthSource, ClusterConfig as KubeClusterConfig, KubeApplierAdapter, KubeClient, KubeSsaApplier,
+    LiveStore, StoreLiveSource,
+};
 use synchrotron_plugins::{AppCache, AppRenderer, Registry};
 use synchrotron_reconcile::{
-    AppResolver, DesiredStore, EventTrigger, JobCtx, PoolConfig, Reconciler, StoreDesiredSource,
-    WorkerPool,
+    AlwaysHealthy, AppResolver, DesiredStore, EventTrigger, JobCtx, PoolConfig, ReconcileExecutor,
+    Reconciler, StoreDesiredSource, WaveExecConfig, WorkerPool,
 };
 use synchrotron_server::api;
 use synchrotron_server::config::{reload, Config, ConfigHandle};
@@ -145,22 +148,67 @@ async fn main() -> anyhow::Result<()> {
         "live-store registered cluster names"
     );
 
-    let reconciler = Arc::new(
+    // Build a kube Applier + ReconcileExecutor per configured
+    // cluster (synchrotron-cd-79e). A cluster whose Client fails to
+    // build (missing kubeconfig, unreachable in-cluster SA token,
+    // etc) is logged and skipped — the Reconciler stays plan-only
+    // for that cluster. Other clusters still apply.
+    let mut reconciler_builder =
         Reconciler::new(desired_source.clone(), live_source.clone(), bus.clone())
-            .with_metrics(metrics.clone()),
-    );
-    // Executor (kube Applier + HealthChecker) is wired by a
-    // follow-up task — building production-realistic instances
-    // per cluster needs the kube-client config plumbing that
-    // hasn't landed yet. Until then the Reconciler operates in
-    // plan-only mode; the API exposes the plan via /diff and
-    // /sync still returns a structured outcome.
+            .with_metrics(metrics.clone());
+    for c in &cfg.clusters {
+        let kube_cfg = if c.in_cluster {
+            KubeClusterConfig {
+                name: synchrotron_kube::ClusterName(c.name.clone()),
+                source: AuthSource::InCluster,
+            }
+        } else if let Some(kc) = &c.kubeconfig {
+            let mut kcfg = KubeClusterConfig::from_kubeconfig(c.name.clone(), kc.clone());
+            if let Some(ctx) = &c.context {
+                kcfg = kcfg.with_context(ctx.clone());
+            }
+            kcfg
+        } else {
+            KubeClusterConfig::default_discovery(c.name.clone())
+        };
+        match KubeClient::connect(&kube_cfg).await {
+            Ok(kc) => {
+                let ssa = Arc::new(KubeSsaApplier::new(kc.client().clone(), "synchrotron"));
+                let applier = Arc::new(KubeApplierAdapter::new(ssa));
+                let executor = ReconcileExecutor {
+                    applier,
+                    // AlwaysHealthy is the slice-1 default. Real
+                    // informer-backed health waits on the LiveStore
+                    // being populated (slice wba); swap in then.
+                    health: Arc::new(AlwaysHealthy),
+                    config: WaveExecConfig::default(),
+                };
+                reconciler_builder = reconciler_builder.with_cluster_executor(
+                    synchrotron_types::ClusterName(c.name.clone()),
+                    executor,
+                );
+                info!(cluster = %c.name, "kube executor wired");
+            }
+            Err(e) => {
+                warn!(cluster = %c.name, error = %e, "kube client connect failed; cluster stays plan-only");
+            }
+        }
+    }
+    let reconciler = Arc::new(reconciler_builder);
 
     // Worker pool: bounded concurrency + per-app FIFO. Handler
-    // routes to `reconcile_app` (plan-only path). When the executor
-    // follow-up lands, swap to `reconcile_and_apply_app` here.
+    // calls reconcile_and_apply_app, which falls back to plan-only
+    // for clusters without an executor.
+    let pool_db_handle = {
+        // Open an extra DB handle for the pool's per-dispatch
+        // app-record lookup. Cheap; SQLite open is in-process.
+        Arc::new(Mutex::new(synchrotron_core::db::Database::open(
+            &cfg.server.db_path,
+        )?))
+    };
     let pool = {
         let reconciler = reconciler.clone();
+        let db = pool_db_handle.clone();
         Arc::new(WorkerPool::new(
             PoolConfig {
                 max_concurrent: 64,
@@ -168,17 +216,27 @@ async fn main() -> anyhow::Result<()> {
             },
             move |ctx: JobCtx| {
                 let reconciler = reconciler.clone();
+                let db = db.clone();
                 Box::pin(async move {
-                    // No registry of (app_id → cluster) at this slice
-                    // — the trigger doesn't carry a cluster either.
-                    // Production wiring will look up the app's
-                    // dest_cluster from the DB; for now we pass a
-                    // placeholder so the pool's plumbing exercises
-                    // end-to-end without committing to a wrong
-                    // schema.
                     let app = AppName(ctx.app_id.clone());
-                    let cluster = synchrotron_types::ClusterName("default".into());
-                    let _ = reconciler.reconcile_app(&app, &cluster);
+                    // Look up the destination cluster from the
+                    // app record. Missing record (app deleted
+                    // between enqueue and dispatch) → no-op.
+                    let cluster = {
+                        let db = db.lock().expect("db mutex poisoned");
+                        match db.get_application(&app.0) {
+                            Ok(Some(a)) => a.destination.cluster,
+                            Ok(None) => {
+                                warn!(app = %app.0, "dispatch: app not found in DB; skipping");
+                                return;
+                            }
+                            Err(e) => {
+                                warn!(app = %app.0, error = %e, "dispatch: DB lookup failed");
+                                return;
+                            }
+                        }
+                    };
+                    let _ = reconciler.reconcile_and_apply_app(&app, &cluster).await;
                 })
                     as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
             },

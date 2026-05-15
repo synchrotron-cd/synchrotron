@@ -170,6 +170,7 @@ impl<'a> Applier for KubeApplier<'a> {
     fn apply<'b>(
         &'b self,
         entry: &'b PlanEntry,
+        _manifest: Option<Manifest>,
     ) -> Pin<Box<dyn Future<Output = Result<(), ReconcileApplyError>> + Send + 'b>> {
         Box::pin(async move {
             match entry.action {
@@ -340,7 +341,15 @@ async fn run_assertions(client: &Client, ns: &str) -> Result<(), Box<dyn std::er
         desired: desired_lookup(&split_v1.non_hook),
         owned: HashMap::new(),
     };
-    let report1 = execute_waves(&wp1, &kube_app1, &AlwaysHealthy, &wave_cfg()).await?;
+    let report1 = execute_waves(
+        &wp1,
+        &kube_app1,
+        &AlwaysHealthy,
+        &wave_cfg(),
+        &split_v1.non_hook,
+        &[],
+    )
+    .await?;
     assert_eq!(report1.completed_waves, vec![0, 1]);
 
     assert_eq!(
@@ -384,7 +393,15 @@ async fn run_assertions(client: &Client, ns: &str) -> Result<(), Box<dyn std::er
         desired: desired_lookup(&split_v2.non_hook),
         owned: HashMap::new(),
     };
-    execute_waves(&wp2, &kube_app2, &AlwaysHealthy, &wave_cfg()).await?;
+    execute_waves(
+        &wp2,
+        &kube_app2,
+        &AlwaysHealthy,
+        &wave_cfg(),
+        &split_v2.non_hook,
+        &[],
+    )
+    .await?;
 
     // h48.5.2: owned-set drives the prune sweep.
     let prune_v2 = compute_prune_set(&owned_from(&owned_v1), &split_v2.non_hook);
@@ -439,7 +456,15 @@ async fn run_assertions(client: &Client, ns: &str) -> Result<(), Box<dyn std::er
         desired: desired_lookup(&manifests_v1),
         owned: owned_lookup(&owned_v2),
     };
-    execute_waves(&wp_rb, &kube_app_rb, &AlwaysHealthy, &wave_cfg()).await?;
+    execute_waves(
+        &wp_rb,
+        &kube_app_rb,
+        &AlwaysHealthy,
+        &wave_cfg(),
+        &manifests_v1,
+        &[],
+    )
+    .await?;
 
     let prune_rb = compute_prune_set(&owned_from(&owned_v2), &manifests_v1);
     assert_eq!(
