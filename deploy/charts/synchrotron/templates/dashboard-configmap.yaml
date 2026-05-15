@@ -1,0 +1,27 @@
+{{- /*
+Optional Grafana dashboard ConfigMap. Mirrors deploy/dashboards/synchrotron.json
+verbatim. Off by default; turn on with metrics.dashboard.enabled=true.
+
+The `grafana_dashboard: "1"` label is the convention used by
+kube-prometheus-stack's grafana sidecar to auto-load dashboards
+from ConfigMaps in any namespace. If you run a different sidecar,
+override the label with metrics.dashboard.label.
+*/ -}}
+{{- if .Values.metrics.dashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "synchrotron.fullname" . }}-dashboard
+  labels:
+    {{- include "synchrotron.labels" . | nindent 4 }}
+    {{- range $k, $v := .Values.metrics.dashboard.labels }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+  {{- with .Values.metrics.dashboard.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  synchrotron.json: |-
+{{ .Files.Get "dashboards/synchrotron.json" | indent 4 }}
+{{- end }}

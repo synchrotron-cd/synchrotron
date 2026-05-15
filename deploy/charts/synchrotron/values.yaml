@@ -134,6 +134,17 @@ metrics:
     # -- Additional labels to attach (e.g. for Prom selector).
     labels: {}
 
+  # -- Optional Grafana dashboard ConfigMap. Off by default; enable
+  # when you have the kube-prometheus-stack grafana sidecar (or
+  # equivalent) configured to auto-import labelled ConfigMaps. The
+  # default `grafana_dashboard: "1"` label matches that sidecar's
+  # convention.
+  dashboard:
+    enabled: false
+    labels:
+      grafana_dashboard: "1"
+    annotations: {}
+
 # Liveness / readiness probes hit the HTTP API surface.
 # /healthz: 200 once axum is serving.
 # /readyz: 200 once startup (DB, config) has completed; 503 before.
