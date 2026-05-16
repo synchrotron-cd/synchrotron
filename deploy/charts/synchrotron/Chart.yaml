@@ -13,9 +13,9 @@ keywords:
   - cd
   - argocd
   - synchrotron
-home: https://github.com/jsightler/synchrotron-cd
+home: https://github.com/synchrotron-cd/synchrotron
 sources:
-  - https://github.com/jsightler/synchrotron-cd
+  - https://github.com/synchrotron-cd/synchrotron
 maintainers:
   - name: Jesse Sightler
 icon: ""
