@@ -139,14 +139,32 @@ jobs:
             http://127.0.0.1:8484/api/v1/apps
           kill $PF_PID || true
 
+      - name: Push a commit to force RepoChanged after app creation
+        run: |
+          # The controller's first poll happens 10s after pod start
+          # — before the smoke Application is created via the API.
+          # That first RepoChanged fires while the resolver returns
+          # [] (no apps), so the app gets no render. Subsequent
+          # polls find HEAD unchanged and stay silent. Fix:
+          # introduce a new commit so the next poll detects
+          # movement → publishes RepoChanged → app's render fires.
+          # Seeding-on-app-create is a real fix tracked separately.
+          kubectl -n synchrotron-system exec deploy/git-server -- sh -c '
+            set -e
+            git clone -q /srv/git/sample.git /tmp/bump
+            cd /tmp/bump
+            git config user.email smoke@synchrotron-cd.example
+            git config user.name "synchrotron smoke"
+            date > .bump
+            git add .bump
+            git commit -q -m "bump to trigger RepoChanged"
+            git push -q origin main
+          '
+
       - name: Wait for the rendered ConfigMap to land
         run: |
-          # No manual trigger needed: the poller is configured at
-          # 10s above, so within seconds the controller will fetch
-          # the in-cluster repo, render via the raw plugin, push
-          # into the DesiredStore, and reconcile/apply against the
-          # in-cluster kube context. Poll the cluster for the
-          # rendered ConfigMap.
+          # Poller is at 10s + render + reconcile + apply has
+          # multiple hops; budget 240s.
           for i in $(seq 1 48); do
             if kubectl -n default get configmap synchrotron-smoke-cm \
                 -o jsonpath='{.data.marker}' 2>/dev/null \
