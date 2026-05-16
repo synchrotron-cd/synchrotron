@@ -3,14 +3,16 @@ name: docker
 # Build (and on non-PR refs, push) the synchrotron-server container
 # image to ghcr.io.
 #
+# **amd64-only for now.** Multi-arch via buildx + QEMU emulating
+# arm64 Linux for a Rust release build doesn't complete inside
+# GitHub's 60-minute job timeout. Once we have time to switch the
+# arm64 path to a native cross-compile (matching release.yml's
+# `cross` setup) we'll restore multi-arch — tracked separately.
+#
 # Triggers:
-#   - PR  → build amd64 only (validation; no push). Catches
-#           Dockerfile breakage early without burning multi-arch
-#           CPU on every change.
-#   - push to main → build + push linux/amd64 + linux/arm64,
-#           tagged `main` and `latest`.
-#   - tag v*       → build + push multi-arch with the SemVer tags
-#           (1, 1.2, 1.2.3) plus `latest`.
+#   - PR             → build (no push). Validates Dockerfile.
+#   - push to main   → build + push, tags `main` + `latest` + sha.
+#   - tag v*         → build + push with SemVer tags + `latest`.
 
 on:
   pull_request:
@@ -48,10 +50,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        if: github.event_name != 'pull_request'
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -83,9 +81,7 @@ jobs:
           context: .
           file: Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
-          # PR builds stick to one arch to keep validation fast.
-          # Push builds go multi-arch via QEMU for arm64.
-          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # Cache layers across runs so Cargo doesn't re-resolve

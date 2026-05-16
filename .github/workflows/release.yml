@@ -1,9 +1,13 @@
 name: release
 
-# Cuts a release on every `v*` tag: cross-compiles static musl
-# binaries for linux/amd64 and linux/arm64, attests build provenance
-# (SLSA v1 via GitHub's OIDC-backed signer), and publishes tarballs
-# plus an aggregated SHA256SUMS file to the GitHub release.
+# Cuts a release on every `v*` tag: builds a static musl
+# binary for linux/amd64, attests build provenance (SLSA v1 via
+# GitHub's OIDC-backed signer), and publishes a tarball plus a
+# SHA256SUMS file to the GitHub release.
+#
+# **amd64-only for now.** arm64 is filed as a follow-up; once we
+# wire the cross-toolchain path on the docker.yml side (see that
+# workflow's note), it's natural to restore arm64 here too.
 #
 # `workflow_dispatch` exists so the build matrix can be exercised
 # without cutting a release — useful when bumping toolchains or
@@ -36,8 +40,6 @@ jobs:
         include:
           - target: x86_64-unknown-linux-musl
             use_cross: false
-          - target: aarch64-unknown-linux-musl
-            use_cross: true
     steps:
       - uses: actions/checkout@v4
 
