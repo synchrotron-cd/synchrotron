@@ -55,7 +55,7 @@ jobs:
       # Build amd64-only here — kind nodes are amd64 in CI, no need
       # for the multi-arch QEMU pass that docker.yml does.
       - name: Build image (load into local docker)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
