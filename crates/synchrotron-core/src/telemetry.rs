@@ -56,14 +56,20 @@ impl LogFormat {
     /// logs in production (where stderr is a pipe), and humans almost
     /// always want pretty when running locally.
     pub fn from_env() -> Self {
-        if let Ok(v) = std::env::var("SYNCHROTRON_LOG_FORMAT") {
-            return match v.to_ascii_lowercase().as_str() {
-                "json" => Self::Json,
-                "pretty" => Self::Pretty,
-                _ => Self::auto(),
-            };
+        Self::parse(std::env::var("SYNCHROTRON_LOG_FORMAT").ok().as_deref())
+            .unwrap_or_else(Self::auto)
+    }
+
+    /// Parse the SYNCHROTRON_LOG_FORMAT value. Returns None when the
+    /// env var is unset or unrecognized, signalling the caller should
+    /// fall back to TTY auto-detect. Split out so tests can exercise
+    /// the parse without racing on the global env.
+    fn parse(value: Option<&str>) -> Option<Self> {
+        match value?.to_ascii_lowercase().as_str() {
+            "json" => Some(Self::Json),
+            "pretty" => Some(Self::Pretty),
+            _ => None,
         }
-        Self::auto()
     }
 
     fn auto() -> Self {
@@ -184,25 +190,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn log_format_env_override_to_json() {
-        let prev = std::env::var("SYNCHROTRON_LOG_FORMAT").ok();
-        std::env::set_var("SYNCHROTRON_LOG_FORMAT", "json");
-        assert_eq!(LogFormat::from_env(), LogFormat::Json);
-        match prev {
-            Some(v) => std::env::set_var("SYNCHROTRON_LOG_FORMAT", v),
-            None => std::env::remove_var("SYNCHROTRON_LOG_FORMAT"),
-        }
+    fn log_format_parses_known_values_case_insensitively() {
+        assert_eq!(LogFormat::parse(Some("json")), Some(LogFormat::Json));
+        assert_eq!(LogFormat::parse(Some("JSON")), Some(LogFormat::Json));
+        assert_eq!(LogFormat::parse(Some("pretty")), Some(LogFormat::Pretty));
+        assert_eq!(LogFormat::parse(Some("Pretty")), Some(LogFormat::Pretty));
     }
 
     #[test]
-    fn log_format_env_override_to_pretty() {
-        let prev = std::env::var("SYNCHROTRON_LOG_FORMAT").ok();
-        std::env::set_var("SYNCHROTRON_LOG_FORMAT", "pretty");
-        assert_eq!(LogFormat::from_env(), LogFormat::Pretty);
-        match prev {
-            Some(v) => std::env::set_var("SYNCHROTRON_LOG_FORMAT", v),
-            None => std::env::remove_var("SYNCHROTRON_LOG_FORMAT"),
-        }
+    fn log_format_parse_returns_none_for_missing_or_unknown() {
+        assert_eq!(LogFormat::parse(None), None);
+        assert_eq!(LogFormat::parse(Some("")), None);
+        assert_eq!(LogFormat::parse(Some("yaml")), None);
     }
 
     #[test]
