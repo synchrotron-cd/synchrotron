@@ -74,7 +74,7 @@ jobs:
       - name: Side-load image into kind
         run: kind load docker-image synchrotron-server:smoke --name synchrotron-smoke
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
         with:
           version: v3.16.2
 
