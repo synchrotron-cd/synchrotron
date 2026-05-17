@@ -115,6 +115,47 @@ impl Database {
         )?;
         Ok(affected > 0)
     }
+
+    /// Update only the sync-side status: `sync_status`,
+    /// `last_synced_at`, and optionally `last_synced_revision`.
+    /// Health columns are left untouched. Used by the SyncOutcome
+    /// writer so the two event streams (sync, health) don't race.
+    pub fn update_application_sync(
+        &self,
+        name: &str,
+        sync_status: &SyncStatusCode,
+        last_synced_revision: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let affected = self.conn().execute(
+            "UPDATE applications
+             SET sync_status = ?1,
+                 last_synced_at = ?2,
+                 last_synced_revision = COALESCE(?3, last_synced_revision),
+                 updated_at = ?2
+             WHERE name = ?4",
+            params![sync_status.as_str(), now, last_synced_revision, name],
+        )?;
+        Ok(affected > 0)
+    }
+
+    /// Update only the health-side status. Sync columns are left
+    /// untouched. Counterpart to [`Self::update_application_sync`].
+    pub fn update_application_health(
+        &self,
+        name: &str,
+        health_status: &HealthStatusCode,
+        health_message: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let affected = self.conn().execute(
+            "UPDATE applications
+             SET health_status = ?1, health_message = ?2, updated_at = ?3
+             WHERE name = ?4",
+            params![health_status.as_str(), health_message, now, name],
+        )?;
+        Ok(affected > 0)
+    }
 }
 
 fn row_to_application(row: &rusqlite::Row) -> anyhow::Result<Application> {

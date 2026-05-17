@@ -20,6 +20,7 @@ use synchrotron_reconcile::{
 use synchrotron_server::api;
 use synchrotron_server::config::{reload, Config, ConfigHandle};
 use synchrotron_server::pipeline;
+use synchrotron_server::status_writer;
 use synchrotron_types::AppName;
 
 /// DB-backed [`AppResolver`]. Maps a repo URL (the wire form
@@ -314,6 +315,12 @@ async fn main() -> anyhow::Result<()> {
     let _trigger = EventTrigger::spawn(&bus, pool.handle(), resolver);
     registry.report("reconciler", api::ComponentState::Up);
     info!("event trigger spawned (RepoChanged / WebhookTriggered → pool)");
+
+    // Persist SyncOutcome / AppHealthAssessed events into the
+    // applications row so /api/v1/apps reflects reality. Without
+    // this the status columns stay at Unknown forever (c7z).
+    let _status_writer = status_writer::spawn(bus.clone(), apps_state.db.clone());
+    info!("status writer spawned (SyncOutcome / AppHealthAssessed → applications row)");
 
     // Desired-state pipeline (synchrotron-cd-tvy): git Pollers per
     // repo, bus bridges, and the render loop that updates the
