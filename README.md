@@ -77,6 +77,7 @@ purpose:
 
 | doc                                              | what's in it |
 |--------------------------------------------------|---|
+| [`docs/quickstart.md`](docs/quickstart.md)       | deploy your first app, end-to-end (~10 min) |
 | [`DESIGN.md`](DESIGN.md)                         | architecture, principles, scope |
 | [`BUILD.md`](BUILD.md)                           | release-build matrix, musl + cross |
 | [`AGENTS.md`](AGENTS.md) / [`CLAUDE.md`](CLAUDE.md) | conventions for AI-assisted contributors |
