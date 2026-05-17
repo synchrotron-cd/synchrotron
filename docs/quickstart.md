@@ -25,13 +25,36 @@ watching it reconcile. End-to-end target: about ten minutes.
 
 ## 1. Install the controller
 
+The Helm chart isn't published to a registry yet, so clone the
+repo and install from the local path:
+
 ```bash
-helm install synchrotron \
-  oci://ghcr.io/synchrotron-cd/charts/synchrotron \
-  --version 0.1.0 \
+git clone https://github.com/synchrotron-cd/synchrotron.git
+cd synchrotron
+
+helm install synchrotron deploy/charts/synchrotron \
   --namespace synchrotron-system \
   --create-namespace
 ```
+
+The chart's default image (`ghcr.io/synchrotron-cd/synchrotron-server`)
+is currently only pullable by org members. Until the package is
+made public (synchrotron-cd-ecr), build the image locally and
+side-load it into your cluster:
+
+```bash
+docker build -t synchrotron-server:dev .
+kind load docker-image synchrotron-server:dev --name synchrotron-quickstart
+helm upgrade synchrotron deploy/charts/synchrotron \
+  --namespace synchrotron-system \
+  --set image.repository=localhost/synchrotron-server \
+  --set image.tag=dev \
+  --set image.pullPolicy=IfNotPresent
+```
+
+(With `kind` + `podman`, loaded images appear under the
+`localhost/` prefix in containerd, so the chart needs the matching
+`image.repository`. With Docker proper, drop the `localhost/`.)
 
 That gives you a running controller with no repos and no apps
 configured — it's ready to be told what to do.
@@ -101,9 +124,7 @@ built-in `raw` plugin (which just reads `.yaml` files from a
 path):
 
 ```bash
-helm upgrade synchrotron \
-  oci://ghcr.io/synchrotron-cd/charts/synchrotron \
-  --version 0.1.0 \
+helm upgrade synchrotron deploy/charts/synchrotron \
   --namespace synchrotron-system \
   --reuse-values \
   --set-json 'config.repos=[{"id":"sample","url":"git://git-server.synchrotron-system.svc:9418/sample.git","branch":"main"}]' \
@@ -118,13 +139,16 @@ kubectl -n synchrotron-system rollout status deploy/synchrotron --timeout=60s
 Drop a ConfigMap into the repo's `manifests/` directory:
 
 ```bash
-kubectl -n synchrotron-system exec deploy/git-server -- sh -c '
+kubectl -n synchrotron-system exec deploy/git-server -c daemon -- sh -c '
   set -e
-  apk add --no-cache git >/dev/null
   rm -rf /tmp/work && git clone -q /srv/git/sample.git /tmp/work
   cd /tmp/work
   git config user.email quickstart@synchrotron-cd.example
   git config user.name "synchrotron quickstart"
+  # Fresh bare repo has no HEAD ref yet; the clone leaves the
+  # local copy on whatever init.defaultBranch is. Force "main" so
+  # the first push lands on the branch synchrotron is polling.
+  git checkout -b main
   mkdir -p manifests
   cat > manifests/hello.yaml <<YAML
 apiVersion: v1
@@ -182,7 +206,7 @@ You should see the ConfigMap appear within a few seconds.
 Push a change to the repo and watch the next reconcile apply it:
 
 ```bash
-kubectl -n synchrotron-system exec deploy/git-server -- sh -c '
+kubectl -n synchrotron-system exec deploy/git-server -c daemon -- sh -c '
   set -e
   cd /tmp/work
   sed -i "s/hello from synchrotron/updated/" manifests/hello.yaml

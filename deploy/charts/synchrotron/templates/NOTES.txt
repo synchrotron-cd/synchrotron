@@ -28,4 +28,4 @@ Define your first Application:
 
 CRDs are managed via the chart's crds/ directory and are NOT
 upgraded by `helm upgrade`. To upgrade CRDs, apply them directly:
-  kubectl apply -f https://github.com/jsightler/synchrotron-cd/releases/download/v{{ .Chart.AppVersion }}/crds.yaml
+  kubectl apply -f https://github.com/synchrotron-cd/synchrotron/releases/download/v{{ .Chart.AppVersion }}/crds.yaml

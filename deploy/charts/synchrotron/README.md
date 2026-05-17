@@ -47,7 +47,7 @@ require a CRD bump.
 | Key | Default | Description |
 | --- | --- | --- |
 | `replicaCount` | `1` | Controller replicas (leader election ensures only one reconciles). |
-| `image.repository` | `ghcr.io/jsightler/synchrotron-server` | Container image. |
+| `image.repository` | `ghcr.io/synchrotron-cd/synchrotron-server` | Container image. |
 | `image.tag` | `""` (chart `appVersion`) | Image tag. |
 | `image.pullPolicy` | `IfNotPresent` | Pull policy. |
 | `imagePullSecrets` | `[]` | Pull secrets for private registries. |
