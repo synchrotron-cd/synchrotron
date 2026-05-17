@@ -138,7 +138,7 @@ async fn webhook_event_drives_reconcile_and_emits_sync_outcome() {
             let trigger_log = trigger_log.clone();
             Box::pin(async move {
                 trigger_log.lock().unwrap().push(ctx.trigger);
-                reconciler.reconcile_app(&AppName(ctx.app_id), &cluster);
+                reconciler.reconcile_app(&AppName(ctx.app_id), &cluster, ctx.trigger.as_str());
             })
         })
     };
@@ -210,7 +210,7 @@ async fn auto_heal_tick_reconciles_apps_with_no_upstream_event() {
             let trigger_log = trigger_log.clone();
             Box::pin(async move {
                 trigger_log.lock().unwrap().push(ctx.trigger);
-                reconciler.reconcile_app(&AppName(ctx.app_id), &cluster);
+                reconciler.reconcile_app(&AppName(ctx.app_id), &cluster, ctx.trigger.as_str());
             })
         })
     };

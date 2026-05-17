@@ -44,6 +44,19 @@ pub enum SystemEvent {
         cluster: ClusterName,
         success: bool,
         message: Option<String>,
+        /// What kicked the reconcile off. Stringly typed (rather
+        /// than an enum) so this crate doesn't have to depend on
+        /// the worker pool's `Trigger` — values use the same slug
+        /// the sync_history table stores: `manual` / `poll` /
+        /// `webhook` / `auto-heal`.
+        trigger: String,
+        /// Git revision the reconcile evaluated. `None` until the
+        /// render pipeline tags the desired-state entry with one
+        /// (typically the bare repo's HEAD at materialization).
+        revision: Option<String>,
+        /// Sum of `Apply` + `Delete` plan entries. 0 if planning
+        /// short-circuited before producing a plan.
+        resources_synced: u32,
     },
     /// An operator (CLI / REST API / dashboard) explicitly requested
     /// a sync for `app`. The reconciler should enqueue it with

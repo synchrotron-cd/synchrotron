@@ -76,6 +76,19 @@ pub enum Trigger {
     Manual,
 }
 
+impl Trigger {
+    /// Slug for `SystemEvent::SyncOutcome.trigger` / the
+    /// `sync_history.trigger` column. Stable — operators grep on it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Webhook => "webhook",
+            Self::Poll => "poll",
+            Self::AutoHeal => "auto-heal",
+            Self::Manual => "manual",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct JobCtx {
     pub app_id: String,

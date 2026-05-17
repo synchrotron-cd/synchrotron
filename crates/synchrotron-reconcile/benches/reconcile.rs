@@ -97,7 +97,8 @@ fn bench_reconcile(c: &mut Criterion) {
                 b.iter(|| {
                     let app = &names[i % apps];
                     i = i.wrapping_add(1);
-                    let outcome = reconciler.reconcile_app(black_box(app), black_box(&cluster));
+                    let outcome =
+                        reconciler.reconcile_app(black_box(app), black_box(&cluster), "manual");
                     black_box(outcome);
                 });
             },

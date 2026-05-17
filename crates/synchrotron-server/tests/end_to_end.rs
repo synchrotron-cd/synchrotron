@@ -151,6 +151,9 @@ fn spawn_stub_reconciler(bus: EventBus, app: AppName, cluster: ClusterName) {
                         cluster: cluster.clone(),
                         success: true,
                         message: None,
+                        trigger: "manual".into(),
+                        revision: None,
+                        resources_synced: 0,
                     });
                 }
                 _ => {}

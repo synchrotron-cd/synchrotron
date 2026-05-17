@@ -159,6 +159,7 @@ fn convert_event(sys: &SystemEvent, counter: &AtomicU64) -> Option<AppWatchEvent
             cluster,
             success,
             message,
+            ..
         } => (
             app.0.clone(),
             "sync_outcome",
@@ -308,6 +309,9 @@ mod tests {
             cluster: ClusterName("prod".into()),
             success: true,
             message: None,
+            trigger: "manual".into(),
+            revision: None,
+            resources_synced: 0,
         });
         bus.publish(SystemEvent::AppHealthAssessed {
             app: AppName("api".into()),

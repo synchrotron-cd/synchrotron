@@ -307,6 +307,9 @@ mod tests {
             cluster: synchrotron_types::ClusterName("c".into()),
             success: true,
             message: None,
+            trigger: "manual".into(),
+            revision: None,
+            resources_synced: 0,
         });
 
         // Give the trigger a moment to drain.

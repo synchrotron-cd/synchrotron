@@ -63,6 +63,9 @@ async fn sync_outcome_success_marks_app_synced() {
         cluster: ClusterName("in-cluster".into()),
         success: true,
         message: None,
+        trigger: "manual".into(),
+        revision: None,
+        resources_synced: 0,
     });
 
     wait_for(
@@ -91,6 +94,9 @@ async fn sync_outcome_failure_marks_app_sync_failed() {
         cluster: ClusterName("in-cluster".into()),
         success: false,
         message: Some("boom".into()),
+        trigger: "manual".into(),
+        revision: None,
+        resources_synced: 0,
     });
 
     wait_for(
@@ -150,12 +156,18 @@ async fn sync_outcome_appends_a_sync_history_record() {
         cluster: ClusterName("in-cluster".into()),
         success: true,
         message: None,
+        trigger: "manual".into(),
+        revision: None,
+        resources_synced: 0,
     });
     bus.publish(SystemEvent::SyncOutcome {
         app: AppName("web".into()),
         cluster: ClusterName("in-cluster".into()),
         success: false,
         message: Some("boom".into()),
+        trigger: "manual".into(),
+        revision: None,
+        resources_synced: 0,
     });
 
     wait_for(
@@ -175,6 +187,46 @@ async fn sync_outcome_appends_a_sync_history_record() {
 }
 
 #[tokio::test]
+async fn sync_outcome_revision_lands_in_app_and_history() {
+    let db = Arc::new(Mutex::new(Database::open_in_memory().unwrap()));
+    let app_id = {
+        let guard = db.lock().unwrap();
+        seed_app(&guard, "web");
+        guard.get_application("web").unwrap().unwrap().id
+    };
+    let bus = EventBus::new(16);
+    let _writer = status_writer::spawn(bus.clone(), db.clone());
+
+    bus.publish(SystemEvent::SyncOutcome {
+        app: AppName("web".into()),
+        cluster: ClusterName("in-cluster".into()),
+        success: true,
+        message: None,
+        trigger: "webhook".into(),
+        revision: Some("deadbeef".into()),
+        resources_synced: 5,
+    });
+
+    wait_for(
+        || {
+            let app = db.lock().unwrap().get_application("web").unwrap().unwrap();
+            app.status.last_synced_revision.as_deref() == Some("deadbeef")
+        },
+        "last_synced_revision populated",
+    )
+    .await;
+
+    let history = db.lock().unwrap().get_sync_history(&app_id, 10).unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].revision, "deadbeef");
+    assert_eq!(history[0].resources_synced, 5);
+    assert_eq!(
+        history[0].trigger,
+        synchrotron_core::db::SyncTrigger::Webhook
+    );
+}
+
+#[tokio::test]
 async fn sync_and_health_dont_clobber_each_other() {
     let db = Arc::new(Mutex::new(Database::open_in_memory().unwrap()));
     {
@@ -189,6 +241,9 @@ async fn sync_and_health_dont_clobber_each_other() {
         cluster: ClusterName("in-cluster".into()),
         success: true,
         message: None,
+        trigger: "manual".into(),
+        revision: None,
+        resources_synced: 0,
     });
     bus.publish(SystemEvent::AppHealthAssessed {
         app: AppName("web".into()),

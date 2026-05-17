@@ -384,7 +384,11 @@ async fn render_apps_for_repo(
         };
         match renderer.render(&spec).await {
             Ok(manifests) => {
-                desired_store.put(app.name.clone(), manifests);
+                desired_store.put_with_revision(
+                    app.name.clone(),
+                    manifests,
+                    Some(new_head.to_string()),
+                );
                 info!(app = %app_name_str, head = new_head, "desired store updated");
                 // Kick the reconciler now that desired state is
                 // populated. Ordering matters: publish AFTER the

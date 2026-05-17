@@ -286,7 +286,9 @@ async fn main() -> anyhow::Result<()> {
                             }
                         }
                     };
-                    let _ = reconciler.reconcile_and_apply_app(&app, &cluster).await;
+                    let _ = reconciler
+                        .reconcile_and_apply_app(&app, &cluster, ctx.trigger.as_str())
+                        .await;
                 })
                     as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
             },

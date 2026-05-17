@@ -30,6 +30,16 @@ use synchrotron_types::AppName;
 
 use crate::reconcile::{DesiredSource, SourceError};
 
+/// One entry in [`DesiredStore`]: the rendered manifests plus the
+/// git revision they were produced from (when known). The revision
+/// flows into `SystemEvent::SyncOutcome.revision` so consumers
+/// (status writer, sync history, notifier) can show "synced @ <sha>".
+#[derive(Debug, Clone)]
+pub struct DesiredEntry {
+    pub manifests: Arc<[Manifest]>,
+    pub revision: Option<String>,
+}
+
 /// Thread-safe in-memory snapshot of "the latest rendered desired
 /// manifests for each app". Writes (from the render pipeline) take
 /// an exclusive lock for the duration of one swap; reads take a
@@ -40,7 +50,7 @@ use crate::reconcile::{DesiredSource, SourceError};
 /// [`crate::ReconcileError::AppNotFound`].
 #[derive(Debug, Default)]
 pub struct DesiredStore {
-    inner: RwLock<HashMap<AppName, Arc<[Manifest]>>>,
+    inner: RwLock<HashMap<AppName, DesiredEntry>>,
 }
 
 impl DesiredStore {
@@ -48,11 +58,34 @@ impl DesiredStore {
         Self::default()
     }
 
-    /// Replace the slot for `app` with `manifests`. Idempotent.
-    /// Typically called by the render pipeline once a new commit
-    /// has been rendered through the plugin.
+    /// Replace the slot for `app` with `manifests` and no revision.
+    /// Prefer [`Self::put_with_revision`] from the render pipeline so
+    /// the SyncOutcome event can carry the revision.
     pub fn put(&self, app: AppName, manifests: Arc<[Manifest]>) {
-        self.inner.write().unwrap().insert(app, manifests);
+        self.inner.write().unwrap().insert(
+            app,
+            DesiredEntry {
+                manifests,
+                revision: None,
+            },
+        );
+    }
+
+    /// Replace the slot for `app` with `manifests` tagged with the
+    /// `revision` that produced them.
+    pub fn put_with_revision(
+        &self,
+        app: AppName,
+        manifests: Arc<[Manifest]>,
+        revision: Option<String>,
+    ) {
+        self.inner.write().unwrap().insert(
+            app,
+            DesiredEntry {
+                manifests,
+                revision,
+            },
+        );
     }
 
     /// Convenience wrapper that takes an owned `Vec<Manifest>`.
@@ -82,8 +115,16 @@ impl DesiredStore {
             .read()
             .unwrap()
             .get(app)
-            .cloned()
+            .map(|e| e.manifests.clone())
             .ok_or(SourceError::NotFound)
+    }
+
+    fn get_revision(&self, app: &AppName) -> Option<String> {
+        self.inner
+            .read()
+            .unwrap()
+            .get(app)
+            .and_then(|e| e.revision.clone())
     }
 }
 
@@ -93,6 +134,10 @@ pub struct StoreDesiredSource(pub Arc<DesiredStore>);
 impl DesiredSource for StoreDesiredSource {
     fn desired(&self, app: &AppName) -> Result<Arc<[Manifest]>, SourceError> {
         self.0.get(app)
+    }
+
+    fn desired_revision(&self, app: &AppName) -> Option<String> {
+        self.0.get_revision(app)
     }
 }
 

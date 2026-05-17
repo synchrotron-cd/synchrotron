@@ -33,38 +33,34 @@ pub fn spawn(bus: EventBus, db: Arc<Mutex<Database>>) -> JoinHandle<()> {
                         cluster: _,
                         success,
                         message,
+                        trigger,
+                        revision,
+                        resources_synced,
                     } => {
                         let status = if success {
                             SyncStatusCode::Synced
                         } else {
                             SyncStatusCode::SyncFailed
                         };
-                        // last_synced_revision isn't on the event yet
-                        // — once the reconciler threads it through,
-                        // pass Some(rev) here.
+                        let trigger_enum = SyncTrigger::from_str_lossy(&trigger);
                         let (sync_res, history_res) = {
                             let db = db.lock().expect("db mutex poisoned");
-                            let sync = db.update_application_sync(&app.0, &status, None);
+                            let sync =
+                                db.update_application_sync(&app.0, &status, revision.as_deref());
                             let history = match db.get_application(&app.0) {
                                 Ok(Some(application)) => {
                                     let record = SyncRecord {
                                         id: Uuid::new_v4(),
                                         app_id: application.id,
-                                        // Placeholder until SyncOutcome
-                                        // carries the synced revision
-                                        // (synchrotron-cd-ji2).
-                                        revision: String::new(),
+                                        revision: revision.clone().unwrap_or_default(),
                                         status: if success {
                                             SyncRecordStatus::Succeeded
                                         } else {
                                             SyncRecordStatus::Failed
                                         },
                                         message: message.clone(),
-                                        // Trigger info isn't on the
-                                        // event yet either — leave at
-                                        // Manual until threaded through.
-                                        trigger: SyncTrigger::Manual,
-                                        resources_synced: 0,
+                                        trigger: trigger_enum,
+                                        resources_synced: resources_synced as i32,
                                         started_at: evt.at.into(),
                                         finished_at: Some(evt.at.into()),
                                     };

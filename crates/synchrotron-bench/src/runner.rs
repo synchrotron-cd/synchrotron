@@ -134,7 +134,7 @@ async fn run_sweep_scenario(cfg: ScenarioConfig) -> anyhow::Result<Report> {
                 };
                 let (app, cluster) = &app_lookup[idx];
                 let t0 = Instant::now();
-                let outcome = reconciler.reconcile_app(app, cluster);
+                let outcome = reconciler.reconcile_app(app, cluster, ctx.trigger.as_str());
                 let elapsed = t0.elapsed();
 
                 // Only record after warmup.
@@ -473,7 +473,7 @@ mod webhook {
                     };
                     let app = &app_names[idx];
                     let cluster = &cluster_lookup[idx];
-                    let _ = reconciler.reconcile_app(app, cluster);
+                    let _ = reconciler.reconcile_app(app, cluster, ctx.trigger.as_str());
                 })
                     as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
             }

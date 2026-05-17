@@ -194,6 +194,7 @@ impl Notifier {
                 cluster,
                 success,
                 message,
+                ..
             } = evt.event
             else {
                 continue;
@@ -537,6 +538,9 @@ mod tests {
             cluster: ClusterName("prod".into()),
             success: true,
             message: None,
+            trigger: "manual".into(),
+            revision: None,
+            resources_synced: 0,
         });
 
         // Give the loop a chance to consume the event.
@@ -563,6 +567,9 @@ mod tests {
             cluster: ClusterName("prod".into()),
             success: false,
             message: Some("boom".into()),
+            trigger: "manual".into(),
+            revision: None,
+            resources_synced: 0,
         });
 
         for _ in 0..50 {

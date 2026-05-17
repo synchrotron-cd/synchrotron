@@ -140,6 +140,9 @@ async fn watch_streams_live_sync_outcome_event() {
         cluster: ClusterName("prod".into()),
         success: true,
         message: None,
+        trigger: "manual".into(),
+        revision: None,
+        resources_synced: 0,
     });
     // A second app's events must not appear on the `web` stream.
     bus.publish(SystemEvent::ManualSyncRequested {

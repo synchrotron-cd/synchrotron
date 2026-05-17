@@ -58,6 +58,14 @@ pub trait DesiredSource: Send + Sync {
     /// At 10k apps × 25 manifests this matters a lot for steady-state
     /// memory; see y0v.3 baseline.
     fn desired(&self, app: &AppName) -> Result<Arc<[Manifest]>, SourceError>;
+
+    /// Git revision the current desired entry was rendered from.
+    /// `None` when the source doesn't track it (test stubs, legacy
+    /// callers) or render hasn't completed yet. Surfaces in
+    /// `SystemEvent::SyncOutcome.revision`.
+    fn desired_revision(&self, _app: &AppName) -> Option<String> {
+        None
+    }
 }
 
 pub trait LiveSource: Send + Sync {
@@ -215,7 +223,12 @@ impl Reconciler {
     /// succeeded or failed. Returns the structured outcome so the
     /// caller can decide whether to retry, back off, or update
     /// per-app status.
-    pub fn reconcile_app(&self, app: &AppName, cluster: &ClusterName) -> ReconcileOutcome {
+    pub fn reconcile_app(
+        &self,
+        app: &AppName,
+        cluster: &ClusterName,
+        trigger: &str,
+    ) -> ReconcileOutcome {
         let _enter = reconcile_span(&app.0, &cluster.0).entered();
         match self.plan_only(app, cluster) {
             Ok((plan, started)) => {
@@ -230,11 +243,16 @@ impl Reconciler {
                     m.record_reconcile(&app.0, &cluster.0, true, started.elapsed());
                     m.record_plan_changes(&app.0, &cluster.0, plan.changes());
                 }
+                let resources_synced = plan.changes() as u32;
+                let revision = self.desired.desired_revision(app);
                 self.bus.publish(SystemEvent::SyncOutcome {
                     app: app.clone(),
                     cluster: cluster.clone(),
                     success: true,
                     message: None,
+                    trigger: trigger.to_owned(),
+                    revision,
+                    resources_synced,
                 });
                 ReconcileOutcome {
                     app: app.clone(),
@@ -244,7 +262,7 @@ impl Reconciler {
                     apply: None,
                 }
             }
-            Err(error) => self.emit_failure(app, cluster, error),
+            Err(error) => self.emit_failure(app, cluster, error, trigger),
         }
     }
 
@@ -296,6 +314,7 @@ impl Reconciler {
         &self,
         app: &AppName,
         cluster: &ClusterName,
+        trigger: &str,
     ) -> ReconcileOutcome {
         // (No span entered here: EnteredSpan is !Send and we have
         // .await points below. The macros inside log %app / %cluster
@@ -306,7 +325,7 @@ impl Reconciler {
         // apply failures into outcome.apply with nothing on the bus).
         let (plan_, started) = match self.plan_only(app, cluster) {
             Ok(p) => p,
-            Err(error) => return self.emit_failure(app, cluster, error),
+            Err(error) => return self.emit_failure(app, cluster, error, trigger),
         };
         debug!(
             %app, %cluster,
@@ -318,6 +337,8 @@ impl Reconciler {
         if let Some(m) = &self.metrics {
             m.record_plan_changes(&app.0, &cluster.0, plan_.changes());
         }
+        let resources_synced = plan_.changes() as u32;
+        let revision = self.desired.desired_revision(app);
 
         let Some(executor) = self.executor_for(cluster) else {
             // Plan-only mode (no executor for this cluster). Publish
@@ -330,6 +351,9 @@ impl Reconciler {
                 cluster: cluster.clone(),
                 success: true,
                 message: None,
+                trigger: trigger.to_owned(),
+                revision: revision.clone(),
+                resources_synced,
             });
             return ReconcileOutcome {
                 app: app.clone(),
@@ -363,7 +387,15 @@ impl Reconciler {
                         "could not refetch desired manifests for wave grouping: {e}"
                     )),
                 };
-                self.publish_apply_result(app, cluster, started, Err(&err));
+                self.publish_apply_result(
+                    app,
+                    cluster,
+                    started,
+                    Err(&err),
+                    trigger,
+                    revision.clone(),
+                    resources_synced,
+                );
                 outcome.apply = Some(Err(err));
                 return outcome;
             }
@@ -378,7 +410,15 @@ impl Reconciler {
                         "could not refetch live manifests for wave grouping: {e}"
                     )),
                 };
-                self.publish_apply_result(app, cluster, started, Err(&err));
+                self.publish_apply_result(
+                    app,
+                    cluster,
+                    started,
+                    Err(&err),
+                    trigger,
+                    revision.clone(),
+                    resources_synced,
+                );
                 outcome.apply = Some(Err(err));
                 return outcome;
             }
@@ -404,17 +444,29 @@ impl Reconciler {
                 "wave execution complete"
             );
         }
-        self.publish_apply_result(app, cluster, started, result.as_ref().map(|_| ()));
+        self.publish_apply_result(
+            app,
+            cluster,
+            started,
+            result.as_ref().map(|_| ()),
+            trigger,
+            revision,
+            resources_synced,
+        );
         outcome.apply = Some(result);
         outcome
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn publish_apply_result(
         &self,
         app: &AppName,
         cluster: &ClusterName,
         started: Instant,
         result: Result<(), &WaveExecError>,
+        trigger: &str,
+        revision: Option<String>,
+        resources_synced: u32,
     ) {
         let success = result.is_ok();
         let message = result.err().map(|e| e.to_string());
@@ -426,6 +478,9 @@ impl Reconciler {
             cluster: cluster.clone(),
             success,
             message,
+            trigger: trigger.to_owned(),
+            revision,
+            resources_synced,
         });
     }
 
@@ -434,6 +489,7 @@ impl Reconciler {
         app: &AppName,
         cluster: &ClusterName,
         error: ReconcileError,
+        trigger: &str,
     ) -> ReconcileOutcome {
         warn!(%app, %cluster, %error, "reconcile failed");
         if let Some(m) = &self.metrics {
@@ -450,6 +506,11 @@ impl Reconciler {
             cluster: cluster.clone(),
             success: false,
             message: Some(error.to_string()),
+            trigger: trigger.to_owned(),
+            // Failure short-circuited before we could plan, so no
+            // revision / no resource count to report.
+            revision: None,
+            resources_synced: 0,
         });
         ReconcileOutcome {
             app: app.clone(),
@@ -559,7 +620,11 @@ mod tests {
         desired.set("app-a", Ok(vec![m.clone()]));
         live.set("app-a", "prod", Ok(vec![m]));
 
-        let out = reconciler.reconcile_app(&AppName("app-a".into()), &ClusterName("prod".into()));
+        let out = reconciler.reconcile_app(
+            &AppName("app-a".into()),
+            &ClusterName("prod".into()),
+            "manual",
+        );
         assert!(out.success());
         let p = out.plan.expect("plan");
         assert_eq!(p.noop_count(), 1);
@@ -583,7 +648,11 @@ mod tests {
         desired.set("app-a", Ok(vec![update_d, new]));
         live.set("app-a", "prod", Ok(vec![update_l, orphan]));
 
-        let out = reconciler.reconcile_app(&AppName("app-a".into()), &ClusterName("prod".into()));
+        let out = reconciler.reconcile_app(
+            &AppName("app-a".into()),
+            &ClusterName("prod".into()),
+            "manual",
+        );
         assert!(out.success());
         let p = out.plan.unwrap();
         assert_eq!(p.apply_count(), 2);
@@ -596,7 +665,11 @@ mod tests {
         // No desired entry → NotFound.
         live.set("ghost", "prod", Ok(vec![]));
 
-        let out = reconciler.reconcile_app(&AppName("ghost".into()), &ClusterName("prod".into()));
+        let out = reconciler.reconcile_app(
+            &AppName("ghost".into()),
+            &ClusterName("prod".into()),
+            "manual",
+        );
         assert!(!out.success());
         assert!(matches!(out.error, Some(ReconcileError::AppNotFound(_))));
         assert!(out.plan.is_none());
@@ -620,7 +693,11 @@ mod tests {
         desired.set("app-a", Ok(vec![]));
         // No live entry → NotFound.
 
-        let out = reconciler.reconcile_app(&AppName("app-a".into()), &ClusterName("dead".into()));
+        let out = reconciler.reconcile_app(
+            &AppName("app-a".into()),
+            &ClusterName("dead".into()),
+            "manual",
+        );
         assert!(!out.success());
         assert!(matches!(
             out.error,
@@ -641,7 +718,11 @@ mod tests {
         desired.set("app-a", Err(SourceError::Unavailable("cache cold".into())));
         live.set("app-a", "prod", Ok(vec![]));
 
-        let out = reconciler.reconcile_app(&AppName("app-a".into()), &ClusterName("prod".into()));
+        let out = reconciler.reconcile_app(
+            &AppName("app-a".into()),
+            &ClusterName("prod".into()),
+            "manual",
+        );
         assert!(!out.success());
         match out.error {
             Some(ReconcileError::DesiredFetch { source, .. }) => {
@@ -662,7 +743,11 @@ mod tests {
             Err(SourceError::Unavailable("apiserver 503".into())),
         );
 
-        let out = reconciler.reconcile_app(&AppName("app-a".into()), &ClusterName("prod".into()));
+        let out = reconciler.reconcile_app(
+            &AppName("app-a".into()),
+            &ClusterName("prod".into()),
+            "manual",
+        );
         assert!(!out.success());
         assert!(matches!(out.error, Some(ReconcileError::LiveFetch { .. })));
         assert_eq!(try_drain(&mut rx).len(), 1);
@@ -736,7 +821,11 @@ mod tests {
         reconciler = reconciler.with_executor(executor_with(applier.clone()));
 
         let out = reconciler
-            .reconcile_and_apply_app(&AppName("app-a".into()), &ClusterName("prod".into()))
+            .reconcile_and_apply_app(
+                &AppName("app-a".into()),
+                &ClusterName("prod".into()),
+                "manual",
+            )
             .await;
 
         assert!(out.success(), "outcome should succeed: {out:?}");
@@ -763,7 +852,11 @@ mod tests {
         reconciler = reconciler.with_executor(executor_with(applier));
 
         let out = reconciler
-            .reconcile_and_apply_app(&AppName("app-a".into()), &ClusterName("prod".into()))
+            .reconcile_and_apply_app(
+                &AppName("app-a".into()),
+                &ClusterName("prod".into()),
+                "manual",
+            )
             .await;
 
         assert!(
@@ -813,7 +906,11 @@ mod tests {
         reconciler = reconciler.with_executor(executor_with(applier));
 
         let _ = reconciler
-            .reconcile_and_apply_app(&AppName("app-a".into()), &ClusterName("prod".into()))
+            .reconcile_and_apply_app(
+                &AppName("app-a".into()),
+                &ClusterName("prod".into()),
+                "manual",
+            )
             .await;
 
         let events = try_drain(&mut rx);
@@ -834,7 +931,11 @@ mod tests {
         live_src.set("app-a", "prod", Ok(vec![]));
 
         let out = reconciler
-            .reconcile_and_apply_app(&AppName("app-a".into()), &ClusterName("prod".into()))
+            .reconcile_and_apply_app(
+                &AppName("app-a".into()),
+                &ClusterName("prod".into()),
+                "manual",
+            )
             .await;
 
         assert!(out.success());
@@ -876,7 +977,11 @@ mod tests {
             .with_cluster_executor(ClusterName("prod".into()), executor_with(prod_apl.clone()));
 
         let out = reconciler
-            .reconcile_and_apply_app(&AppName("app-a".into()), &ClusterName("prod".into()))
+            .reconcile_and_apply_app(
+                &AppName("app-a".into()),
+                &ClusterName("prod".into()),
+                "manual",
+            )
             .await;
         assert!(
             out.success(),
@@ -886,7 +991,11 @@ mod tests {
 
         // The default executor (which fails) should be used for `stage`.
         let out_stage = reconciler
-            .reconcile_and_apply_app(&AppName("app-a".into()), &ClusterName("stage".into()))
+            .reconcile_and_apply_app(
+                &AppName("app-a".into()),
+                &ClusterName("stage".into()),
+                "manual",
+            )
             .await;
         assert!(!out_stage.success(), "stage falls back to failing default");
     }
