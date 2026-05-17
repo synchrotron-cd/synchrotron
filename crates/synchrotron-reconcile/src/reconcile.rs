@@ -217,70 +217,63 @@ impl Reconciler {
     /// per-app status.
     pub fn reconcile_app(&self, app: &AppName, cluster: &ClusterName) -> ReconcileOutcome {
         let _enter = reconcile_span(&app.0, &cluster.0).entered();
-        let started = Instant::now();
-        let desired = match self.desired.desired(app) {
-            Ok(d) => d,
-            Err(SourceError::NotFound) => {
-                return self.emit_failure(app, cluster, ReconcileError::AppNotFound(app.clone()));
-            }
-            Err(e) => {
-                return self.emit_failure(
-                    app,
-                    cluster,
-                    ReconcileError::DesiredFetch {
-                        app: app.clone(),
-                        source: e,
-                    },
+        match self.plan_only(app, cluster) {
+            Ok((plan, started)) => {
+                debug!(
+                    %app, %cluster,
+                    applies = plan.apply_count(),
+                    deletes = plan.delete_count(),
+                    noops = plan.noop_count(),
+                    "reconcile plan produced"
                 );
+                if let Some(m) = &self.metrics {
+                    m.record_reconcile(&app.0, &cluster.0, true, started.elapsed());
+                    m.record_plan_changes(&app.0, &cluster.0, plan.changes());
+                }
+                self.bus.publish(SystemEvent::SyncOutcome {
+                    app: app.clone(),
+                    cluster: cluster.clone(),
+                    success: true,
+                    message: None,
+                });
+                ReconcileOutcome {
+                    app: app.clone(),
+                    cluster: cluster.clone(),
+                    plan: Some(plan),
+                    error: None,
+                    apply: None,
+                }
             }
-        };
-        let live = match self.live.live(app, cluster) {
-            Ok(l) => l,
-            Err(SourceError::NotFound) => {
-                return self.emit_failure(
-                    app,
-                    cluster,
-                    ReconcileError::ClusterNotFound(cluster.clone()),
-                );
-            }
-            Err(e) => {
-                return self.emit_failure(
-                    app,
-                    cluster,
-                    ReconcileError::LiveFetch {
-                        app: app.clone(),
-                        cluster: cluster.clone(),
-                        source: e,
-                    },
-                );
-            }
-        };
+            Err(error) => self.emit_failure(app, cluster, error),
+        }
+    }
 
-        let plan = plan(&desired, &live);
-        debug!(
-            %app, %cluster,
-            applies = plan.apply_count(),
-            deletes = plan.delete_count(),
-            noops = plan.noop_count(),
-            "reconcile plan produced"
-        );
-        if let Some(m) = &self.metrics {
-            m.record_reconcile(&app.0, &cluster.0, true, started.elapsed());
-            m.record_plan_changes(&app.0, &cluster.0, plan.changes());
-        }
-        self.bus.publish(SystemEvent::SyncOutcome {
-            app: app.clone(),
-            cluster: cluster.clone(),
-            success: true,
-            message: None,
-        });
-        ReconcileOutcome {
-            app: app.clone(),
-            cluster: cluster.clone(),
-            plan: Some(plan),
-            error: None,
-            apply: None,
-        }
+    /// Plan without publishing a SyncOutcome or touching metrics.
+    /// Shared between [`Self::reconcile_app`] (which publishes on
+    /// the planning result) and [`Self::reconcile_and_apply_app`]
+    /// (which defers publishing until after the apply pass).
+    fn plan_only(
+        &self,
+        app: &AppName,
+        cluster: &ClusterName,
+    ) -> Result<(Plan, Instant), ReconcileError> {
+        let started = Instant::now();
+        let desired = self.desired.desired(app).map_err(|e| match e {
+            SourceError::NotFound => ReconcileError::AppNotFound(app.clone()),
+            other => ReconcileError::DesiredFetch {
+                app: app.clone(),
+                source: other,
+            },
+        })?;
+        let live = self.live.live(app, cluster).map_err(|e| match e {
+            SourceError::NotFound => ReconcileError::ClusterNotFound(cluster.clone()),
+            other => ReconcileError::LiveFetch {
+                app: app.clone(),
+                cluster: cluster.clone(),
+                source: other,
+            },
+        })?;
+        Ok((plan(&desired, &live), started))
     }
 
     /// Plan + execute. Runs the same planning step as
@@ -304,13 +297,57 @@ impl Reconciler {
         app: &AppName,
         cluster: &ClusterName,
     ) -> ReconcileOutcome {
-        let mut outcome = self.reconcile_app(app, cluster);
-        let Some(plan_ref) = &outcome.plan else {
-            return outcome; // planning already failed
+        // (No span entered here: EnteredSpan is !Send and we have
+        // .await points below. The macros inside log %app / %cluster
+        // explicitly, which is what we'd want from the span anyway.)
+        // Plan without publishing — we want a single SyncOutcome at
+        // the end that reflects both planning AND apply (7s1: prior
+        // versions published success-on-plan and silently dropped
+        // apply failures into outcome.apply with nothing on the bus).
+        let (plan_, started) = match self.plan_only(app, cluster) {
+            Ok(p) => p,
+            Err(error) => return self.emit_failure(app, cluster, error),
         };
+        debug!(
+            %app, %cluster,
+            applies = plan_.apply_count(),
+            deletes = plan_.delete_count(),
+            noops = plan_.noop_count(),
+            "reconcile plan produced"
+        );
+        if let Some(m) = &self.metrics {
+            m.record_plan_changes(&app.0, &cluster.0, plan_.changes());
+        }
+
         let Some(executor) = self.executor_for(cluster) else {
-            return outcome; // plan-only mode (no executor for this cluster)
+            // Plan-only mode (no executor for this cluster). Publish
+            // success based on the plan and return.
+            if let Some(m) = &self.metrics {
+                m.record_reconcile(&app.0, &cluster.0, true, started.elapsed());
+            }
+            self.bus.publish(SystemEvent::SyncOutcome {
+                app: app.clone(),
+                cluster: cluster.clone(),
+                success: true,
+                message: None,
+            });
+            return ReconcileOutcome {
+                app: app.clone(),
+                cluster: cluster.clone(),
+                plan: Some(plan_),
+                error: None,
+                apply: None,
+            };
         };
+
+        let mut outcome = ReconcileOutcome {
+            app: app.clone(),
+            cluster: cluster.clone(),
+            plan: Some(plan_),
+            error: None,
+            apply: None,
+        };
+        let plan_ref = outcome.plan.as_ref().expect("plan_just_set");
 
         // Re-fetch sources to group into waves. Both reads hit the
         // in-memory caches behind `Arc<[Manifest]>`, so this is a
@@ -319,26 +356,30 @@ impl Reconciler {
         let desired = match self.desired.desired(app) {
             Ok(d) => d,
             Err(e) => {
-                outcome.apply = Some(Err(WaveExecError::ApplyFailed {
+                let err = WaveExecError::ApplyFailed {
                     wave: 0,
                     resource: ResourceRef::default(),
                     source: crate::wave::ApplyError::new(format!(
                         "could not refetch desired manifests for wave grouping: {e}"
                     )),
-                }));
+                };
+                self.publish_apply_result(app, cluster, started, Err(&err));
+                outcome.apply = Some(Err(err));
                 return outcome;
             }
         };
         let live = match self.live.live(app, cluster) {
             Ok(l) => l,
             Err(e) => {
-                outcome.apply = Some(Err(WaveExecError::ApplyFailed {
+                let err = WaveExecError::ApplyFailed {
                     wave: 0,
                     resource: ResourceRef::default(),
                     source: crate::wave::ApplyError::new(format!(
                         "could not refetch live manifests for wave grouping: {e}"
                     )),
-                }));
+                };
+                self.publish_apply_result(app, cluster, started, Err(&err));
+                outcome.apply = Some(Err(err));
                 return outcome;
             }
         };
@@ -363,8 +404,29 @@ impl Reconciler {
                 "wave execution complete"
             );
         }
+        self.publish_apply_result(app, cluster, started, result.as_ref().map(|_| ()));
         outcome.apply = Some(result);
         outcome
+    }
+
+    fn publish_apply_result(
+        &self,
+        app: &AppName,
+        cluster: &ClusterName,
+        started: Instant,
+        result: Result<(), &WaveExecError>,
+    ) {
+        let success = result.is_ok();
+        let message = result.err().map(|e| e.to_string());
+        if let Some(m) = &self.metrics {
+            m.record_reconcile(&app.0, &cluster.0, success, started.elapsed());
+        }
+        self.bus.publish(SystemEvent::SyncOutcome {
+            app: app.clone(),
+            cluster: cluster.clone(),
+            success,
+            message,
+        });
     }
 
     fn emit_failure(
@@ -685,7 +747,7 @@ mod tests {
 
     #[tokio::test]
     async fn reconcile_and_apply_surfaces_apply_failure() {
-        let (desired_src, live_src, mut reconciler, _rx) = setup();
+        let (desired_src, live_src, mut reconciler, mut rx) = setup();
         desired_src.set(
             "app-a",
             Ok(vec![manifest("ConfigMap", "cm-1", Some("default"), "v1")]),
@@ -713,6 +775,53 @@ mod tests {
             out.plan.is_some(),
             "plan still produced, apply is what failed"
         );
+
+        // 7s1: a single SyncOutcome reflecting the apply failure
+        // (previously planning emitted success=true here, hiding the
+        // apply error from downstream consumers like status_writer
+        // and the notifier).
+        let events = try_drain(&mut rx);
+        assert_eq!(
+            events.len(),
+            1,
+            "exactly one SyncOutcome per reconcile pass, got {events:?}"
+        );
+        match &events[0].event {
+            SystemEvent::SyncOutcome {
+                success, message, ..
+            } => {
+                assert!(!*success, "SyncOutcome must reflect apply failure");
+                assert!(
+                    message.as_ref().is_some_and(|m| !m.is_empty()),
+                    "failure must carry a non-empty message"
+                );
+            }
+            other => panic!("unexpected event {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn reconcile_and_apply_success_publishes_one_success_event() {
+        let (desired_src, live_src, mut reconciler, mut rx) = setup();
+        desired_src.set(
+            "app-a",
+            Ok(vec![manifest("ConfigMap", "cm-1", Some("default"), "v1")]),
+        );
+        live_src.set("app-a", "prod", Ok(vec![]));
+
+        let applier = Arc::new(RecordingApplier::default());
+        reconciler = reconciler.with_executor(executor_with(applier));
+
+        let _ = reconciler
+            .reconcile_and_apply_app(&AppName("app-a".into()), &ClusterName("prod".into()))
+            .await;
+
+        let events = try_drain(&mut rx);
+        assert_eq!(events.len(), 1, "one event per pass, got {events:?}");
+        match &events[0].event {
+            SystemEvent::SyncOutcome { success, .. } => assert!(*success),
+            other => panic!("unexpected event {other:?}"),
+        }
     }
 
     #[tokio::test]
