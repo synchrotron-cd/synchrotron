@@ -181,17 +181,21 @@ async fn watch_replays_backlog_via_last_event_id() {
 
     create_app(&app, "web").await;
 
-    // Publish three events before any client connects.
-    tokio::task::yield_now().await;
-    tokio::time::sleep(Duration::from_millis(10)).await;
+    // Wait for the fan-in to drain the AppChanged event published by
+    // create_app (5bv), then snapshot the buffer so we're starting
+    // from a known 1-event baseline.
+    let mut probe = watcher.subscribe();
+    timeout(Duration::from_secs(1), probe.recv())
+        .await
+        .expect("AppChanged arrived")
+        .expect("not closed");
+
+    // Publish three more events before any client connects.
     for _ in 0..3 {
         bus.publish(SystemEvent::ManualSyncRequested {
             app: AppName("web".into()),
         });
     }
-
-    // Wait for the fan-in to populate the per-app log.
-    let mut probe = watcher.subscribe();
     for _ in 0..3 {
         timeout(Duration::from_secs(1), probe.recv())
             .await
@@ -201,8 +205,9 @@ async fn watch_replays_backlog_via_last_event_id() {
     drop(probe);
 
     let buffered = watcher.replay("web", None);
-    assert_eq!(buffered.len(), 3);
-    let first_id = buffered[0].id;
+    assert_eq!(buffered.len(), 4);
+    // Skip past AppChanged + the first ManualSync; expect 2 left.
+    let first_id = buffered[1].id;
 
     // Reconnect with Last-Event-ID set to the first id; expect the
     // replay to deliver only the two newer events before the live tail.

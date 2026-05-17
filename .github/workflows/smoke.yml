@@ -141,31 +141,12 @@ jobs:
 
       - name: Wait for the rendered ConfigMap to land
         run: |
-          # The poll loop publishes RepoChanged on HEAD movement,
-          # which fans out to BOTH the render task and the
-          # EventTrigger. Render is slower (clone → materialize →
-          # plugin) than the trigger's enqueue, so the first
-          # reconcile usually hits a still-empty DesiredStore and
-          # fails with "app not found in desired-state cache".
-          # There's no retry today. Workflow fix: push a fresh
-          # commit periodically so additional RepoChanged events
-          # keep firing; eventually render finishes first and
-          # reconcile sees the desired entry. The real fix —
-          # publish an event when render writes the DesiredStore —
-          # is filed as 5bv.
+          # 5bv: POST /api/v1/apps publishes AppChanged, which seeds
+          # the render pipeline immediately (no need for a fresh
+          # commit on the repo). Render publishes ManualSyncRequested
+          # once desired state lands, which kicks the reconciler.
+          # So this is just a simple wait loop.
           for i in $(seq 1 48); do
-            kubectl -n synchrotron-system exec deploy/git-server -- sh -c '
-              set -e
-              rm -rf /tmp/bump
-              git clone -q /srv/git/sample.git /tmp/bump
-              cd /tmp/bump
-              git config user.email smoke@synchrotron-cd.example
-              git config user.name "synchrotron smoke"
-              date > .bump
-              git add .bump >/dev/null
-              git commit -q -m "bump '$i'" || true
-              git push -q origin main || true
-            ' || true
             if kubectl -n default get configmap synchrotron-smoke-cm \
                 -o jsonpath='{.data.marker}' 2>/dev/null \
                 | grep -q "v1"; then

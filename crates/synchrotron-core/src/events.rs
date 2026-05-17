@@ -51,6 +51,14 @@ pub enum SystemEvent {
     /// (repo-scoped) because manual requests target a specific app
     /// and bypass the repo→apps resolver.
     ManualSyncRequested { app: AppName },
+    /// An application was created or had its source changed via the
+    /// API. The render loop should produce a desired-state entry for
+    /// it without waiting for the next poll-driven `RepoChanged`
+    /// (the poll only fires on HEAD movement, which can be never if
+    /// the upstream repo is quiet). Carries the repo so the render
+    /// loop can look up the cached HEAD and materialize without a
+    /// fresh fetch.
+    AppChanged { app: AppName, repo: RepoIdStr },
     /// An aggregate health re-assessment completed for an app. The
     /// `status` is the worst-of across all owned resources;
     /// `message` surfaces the reason from whichever resource drove

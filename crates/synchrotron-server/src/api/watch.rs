@@ -149,6 +149,11 @@ fn convert_event(sys: &SystemEvent, counter: &AtomicU64) -> Option<AppWatchEvent
             "sync_requested",
             serde_json::json!({"app": app.0}),
         ),
+        SystemEvent::AppChanged { app, repo } => (
+            app.0.clone(),
+            "app_changed",
+            serde_json::json!({"app": app.0, "repo": repo}),
+        ),
         SystemEvent::SyncOutcome {
             app,
             cluster,

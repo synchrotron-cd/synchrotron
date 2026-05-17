@@ -285,6 +285,15 @@ pub async fn create_app(
         db.insert_application(&app).map_err(internal_db)?;
     }
 
+    // Seed the render pipeline so the new app gets a desired-state
+    // entry without waiting for the next HEAD movement on the repo.
+    // Without this, an app created mid-poll-interval against a quiet
+    // repo never renders until something pushes — see 5bv.
+    state.bus.publish(SystemEvent::AppChanged {
+        app: app.name.clone(),
+        repo: app.source.repo_url.0.clone(),
+    });
+
     Ok((StatusCode::CREATED, Json(AppView::from(app))))
 }
 

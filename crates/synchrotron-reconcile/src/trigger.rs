@@ -96,7 +96,11 @@ fn dispatch(event: &SystemEvent, pool: &PoolHandle, resolver: &dyn AppResolver) 
         SystemEvent::RepoUnchanged { .. }
         | SystemEvent::RepoFetchFailed { .. }
         | SystemEvent::SyncOutcome { .. }
-        | SystemEvent::AppHealthAssessed { .. } => return,
+        | SystemEvent::AppHealthAssessed { .. }
+        // AppChanged seeds the render pipeline; the render loop
+        // publishes ManualSyncRequested once desired state lands,
+        // which is what actually enqueues the reconcile.
+        | SystemEvent::AppChanged { .. } => return,
     };
 
     for app in apps {

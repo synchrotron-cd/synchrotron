@@ -239,13 +239,22 @@ async fn sync_publishes_manual_event() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::ACCEPTED);
 
-    let evt = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv())
-        .await
-        .expect("event arrived")
-        .expect("not closed");
-    match evt.event {
-        SystemEvent::ManualSyncRequested { app } => assert_eq!(app.0, "web"),
-        other => panic!("unexpected event: {other:?}"),
+    // Drain past the AppChanged event published by POST /apps (5bv:
+    // create seeds the render pipeline) so we can assert on the
+    // ManualSyncRequested from the explicit /sync call.
+    loop {
+        let evt = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv())
+            .await
+            .expect("event arrived")
+            .expect("not closed");
+        match evt.event {
+            SystemEvent::AppChanged { .. } => continue,
+            SystemEvent::ManualSyncRequested { app } => {
+                assert_eq!(app.0, "web");
+                break;
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
     }
 }
 

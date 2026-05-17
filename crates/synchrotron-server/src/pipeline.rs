@@ -245,8 +245,8 @@ fn spawn_render_loop(deps: PipelineDeps) -> JoinHandle<()> {
         let mut rx = bus.subscribe();
         loop {
             match rx.recv().await {
-                Ok(evt) => {
-                    if let SystemEvent::RepoChanged { repo, new_head } = evt.event {
+                Ok(evt) => match evt.event {
+                    SystemEvent::RepoChanged { repo, new_head } => {
                         let Some(repo_struct) = url_to_repo.get(&repo).cloned() else {
                             debug!(repo, "RepoChanged for repo not in config; ignoring");
                             continue;
@@ -257,13 +257,52 @@ fn spawn_render_loop(deps: PipelineDeps) -> JoinHandle<()> {
                             &renderer,
                             &desired_store,
                             &db,
+                            &bus,
                             &repo_struct,
                             &repo,
                             &new_head,
                         )
                         .await;
                     }
-                }
+                    SystemEvent::AppChanged { app, repo } => {
+                        // Render-on-create path (5bv): the poller only
+                        // fires RepoChanged when HEAD moves, so a new
+                        // app against a quiet repo never lands in the
+                        // desired store. Use the bare repo's cached
+                        // HEAD — no network fetch needed.
+                        let Some(repo_struct) = url_to_repo.get(&repo).cloned() else {
+                            debug!(app = %app.0, repo, "AppChanged for repo not in config; ignoring");
+                            continue;
+                        };
+                        let head = {
+                            let gc = git_client.clone();
+                            let rs = repo_struct.clone();
+                            tokio::task::spawn_blocking(move || gc.current_head(&rs))
+                                .await
+                                .expect("current_head task panicked")
+                        };
+                        let head = match head {
+                            Ok(h) => h.0,
+                            Err(e) => {
+                                warn!(app = %app.0, repo, error = %e, "AppChanged: current_head failed (repo not yet cloned?)");
+                                continue;
+                            }
+                        };
+                        render_apps_for_repo(
+                            &git_client,
+                            &workspace,
+                            &renderer,
+                            &desired_store,
+                            &db,
+                            &bus,
+                            &repo_struct,
+                            &repo,
+                            &head,
+                        )
+                        .await;
+                    }
+                    _ => {}
+                },
                 Err(synchrotron_core::events::RecvError::Closed) => {
                     debug!("event bus closed; render loop exiting");
                     return;
@@ -280,6 +319,7 @@ async fn render_apps_for_repo(
     renderer: &Arc<AppRenderer>,
     desired_store: &Arc<DesiredStore>,
     db: &Arc<Mutex<Database>>,
+    bus: &EventBus,
     repo_struct: &Repo,
     repo_url: &str,
     new_head: &str,
@@ -346,6 +386,12 @@ async fn render_apps_for_repo(
             Ok(manifests) => {
                 desired_store.put(app.name.clone(), manifests);
                 info!(app = %app_name_str, head = new_head, "desired store updated");
+                // Kick the reconciler now that desired state is
+                // populated. Ordering matters: publish AFTER the
+                // store write so the reconcile pass sees the entry.
+                bus.publish(SystemEvent::ManualSyncRequested {
+                    app: app.name.clone(),
+                });
             }
             Err(e) => {
                 warn!(app = %app_name_str, head = new_head, error = %e, "render failed; desired-store entry unchanged");
