@@ -26,7 +26,9 @@ watching it reconcile. End-to-end target: about ten minutes.
 ## 1. Install the controller
 
 The Helm chart isn't published to a registry yet, so clone the
-repo and install from the local path:
+repo and install from the local path. The chart's default image
+(`ghcr.io/synchrotron-cd/synchrotron-server`) is public — `kind`
+will pull it on first use.
 
 ```bash
 git clone https://github.com/synchrotron-cd/synchrotron.git
@@ -37,24 +39,21 @@ helm install synchrotron deploy/charts/synchrotron \
   --create-namespace
 ```
 
-The chart's default image (`ghcr.io/synchrotron-cd/synchrotron-server`)
-is currently only pullable by org members. Until the package is
-made public (synchrotron-cd-ecr), build the image locally and
-side-load it into your cluster:
-
-```bash
-docker build -t synchrotron-server:dev .
-kind load docker-image synchrotron-server:dev --name synchrotron-quickstart
-helm upgrade synchrotron deploy/charts/synchrotron \
-  --namespace synchrotron-system \
-  --set image.repository=localhost/synchrotron-server \
-  --set image.tag=dev \
-  --set image.pullPolicy=IfNotPresent
-```
-
-(With `kind` + `podman`, loaded images appear under the
-`localhost/` prefix in containerd, so the chart needs the matching
-`image.repository`. With Docker proper, drop the `localhost/`.)
+> Hacking on the controller itself? Build a local image and
+> side-load it instead:
+>
+> ```bash
+> docker build -t synchrotron-server:dev .
+> kind load docker-image synchrotron-server:dev --name synchrotron-quickstart
+> helm install synchrotron deploy/charts/synchrotron \
+>   --namespace synchrotron-system --create-namespace \
+>   --set image.repository=synchrotron-server \
+>   --set image.tag=dev \
+>   --set image.pullPolicy=IfNotPresent
+> ```
+>
+> With `podman` instead of `docker`, the loaded image lands under
+> the `localhost/` prefix, so use `--set image.repository=localhost/synchrotron-server`.
 
 That gives you a running controller with no repos and no apps
 configured — it's ready to be told what to do.
