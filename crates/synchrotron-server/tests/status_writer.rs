@@ -135,6 +135,46 @@ async fn health_assessment_writes_status_and_message() {
 }
 
 #[tokio::test]
+async fn sync_outcome_appends_a_sync_history_record() {
+    let db = Arc::new(Mutex::new(Database::open_in_memory().unwrap()));
+    let app_id = {
+        let guard = db.lock().unwrap();
+        seed_app(&guard, "web");
+        guard.get_application("web").unwrap().unwrap().id
+    };
+    let bus = EventBus::new(16);
+    let _writer = status_writer::spawn(bus.clone(), db.clone());
+
+    bus.publish(SystemEvent::SyncOutcome {
+        app: AppName("web".into()),
+        cluster: ClusterName("in-cluster".into()),
+        success: true,
+        message: None,
+    });
+    bus.publish(SystemEvent::SyncOutcome {
+        app: AppName("web".into()),
+        cluster: ClusterName("in-cluster".into()),
+        success: false,
+        message: Some("boom".into()),
+    });
+
+    wait_for(
+        || {
+            let history = db.lock().unwrap().get_sync_history(&app_id, 10).unwrap();
+            history.len() == 2
+        },
+        "two history rows",
+    )
+    .await;
+
+    let history = db.lock().unwrap().get_sync_history(&app_id, 10).unwrap();
+    // Ordered DESC by started_at, so [0] is the failure, [1] is the success.
+    let statuses: Vec<_> = history.iter().map(|h| h.status.clone()).collect();
+    assert!(statuses.contains(&synchrotron_core::db::SyncRecordStatus::Succeeded));
+    assert!(statuses.contains(&synchrotron_core::db::SyncRecordStatus::Failed));
+}
+
+#[tokio::test]
 async fn sync_and_health_dont_clobber_each_other() {
     let db = Arc::new(Mutex::new(Database::open_in_memory().unwrap()));
     {

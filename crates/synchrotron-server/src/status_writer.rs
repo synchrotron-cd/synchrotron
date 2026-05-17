@@ -12,11 +12,12 @@
 
 use std::sync::{Arc, Mutex};
 
-use synchrotron_core::db::Database;
+use synchrotron_core::db::{Database, SyncRecord, SyncRecordStatus, SyncTrigger};
 use synchrotron_core::events::{EventBus, RecvError, SystemEvent};
 use synchrotron_types::SyncStatusCode;
 use tokio::task::JoinHandle;
 use tracing::{debug, warn};
+use uuid::Uuid;
 
 pub fn spawn(bus: EventBus, db: Arc<Mutex<Database>>) -> JoinHandle<()> {
     // Subscribe BEFORE spawning so we don't race a caller that
@@ -31,7 +32,7 @@ pub fn spawn(bus: EventBus, db: Arc<Mutex<Database>>) -> JoinHandle<()> {
                         app,
                         cluster: _,
                         success,
-                        message: _,
+                        message,
                     } => {
                         let status = if success {
                             SyncStatusCode::Synced
@@ -41,11 +42,40 @@ pub fn spawn(bus: EventBus, db: Arc<Mutex<Database>>) -> JoinHandle<()> {
                         // last_synced_revision isn't on the event yet
                         // — once the reconciler threads it through,
                         // pass Some(rev) here.
-                        let res = {
+                        let (sync_res, history_res) = {
                             let db = db.lock().expect("db mutex poisoned");
-                            db.update_application_sync(&app.0, &status, None)
+                            let sync = db.update_application_sync(&app.0, &status, None);
+                            let history = match db.get_application(&app.0) {
+                                Ok(Some(application)) => {
+                                    let record = SyncRecord {
+                                        id: Uuid::new_v4(),
+                                        app_id: application.id,
+                                        // Placeholder until SyncOutcome
+                                        // carries the synced revision
+                                        // (synchrotron-cd-ji2).
+                                        revision: String::new(),
+                                        status: if success {
+                                            SyncRecordStatus::Succeeded
+                                        } else {
+                                            SyncRecordStatus::Failed
+                                        },
+                                        message: message.clone(),
+                                        // Trigger info isn't on the
+                                        // event yet either — leave at
+                                        // Manual until threaded through.
+                                        trigger: SyncTrigger::Manual,
+                                        resources_synced: 0,
+                                        started_at: evt.at.into(),
+                                        finished_at: Some(evt.at.into()),
+                                    };
+                                    db.insert_sync_record(&record).map(|_| true)
+                                }
+                                Ok(None) => Ok(false),
+                                Err(e) => Err(e),
+                            };
+                            (sync, history)
                         };
-                        match res {
+                        match sync_res {
                             Ok(true) => {
                                 debug!(app = %app.0, status = status.as_str(), "sync status written")
                             }
@@ -53,6 +83,9 @@ pub fn spawn(bus: EventBus, db: Arc<Mutex<Database>>) -> JoinHandle<()> {
                                 debug!(app = %app.0, "sync status: app no longer in DB; dropping")
                             }
                             Err(e) => warn!(app = %app.0, error = %e, "sync status write failed"),
+                        }
+                        if let Err(e) = history_res {
+                            warn!(app = %app.0, error = %e, "sync history insert failed");
                         }
                     }
                     SystemEvent::AppHealthAssessed {
