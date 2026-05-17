@@ -118,13 +118,19 @@ pub struct RepoCfg {
 /// A manifest-rendering plugin. The `kind` field selects the
 /// runtime; `config` holds runtime-specific options preserved
 /// verbatim for the runtime to interpret.
+///
+/// `kind`-specific fields (`command`, `args`, `env`, `endpoint`,
+/// `timeout_secs`, …) come in via `extra` so the inner
+/// `synchrotron_plugins::registry::RawPlugin` sees them at the top
+/// level — that's the shape its deserializer expects. Without this
+/// flatten, every local/sidecar plugin failed at startup with
+/// "kind: local requires `command`" (m78).
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct PluginCfg {
     pub name: String,
     pub kind: PluginKind,
-    #[serde(default)]
-    pub config: serde_yaml_ng::Value,
+    #[serde(flatten, default)]
+    pub extra: std::collections::BTreeMap<String, serde_yaml_ng::Value>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]

@@ -3282,6 +3282,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "synchrotron-labeler-plugin"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "tempfile",
+ "tracing",
+ "tracing-subscriber",
+ "walkdir",
+]
+
+[[package]]
 name = "synchrotron-notifier"
 version = "0.1.0"
 dependencies = [
@@ -3386,6 +3399,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "utoipa",
  "uuid",
 ]
 

@@ -37,14 +37,24 @@ RUN case "$TARGETARCH" in \
       *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
     esac \
  && rustup target add "$TGT" \
- && cargo build --release --locked --target "$TGT" --bin synchrotron-server \
- && cp "target/$TGT/release/synchrotron-server" /synchrotron-server
+ && cargo build --release --locked --target "$TGT" \
+      --bin synchrotron-server \
+      --bin synchrotron-helm-plugin \
+      --bin synchrotron-kustomize-plugin \
+      --bin synchrotron-labeler-plugin \
+ && cp "target/$TGT/release/synchrotron-server"        /synchrotron-server \
+ && cp "target/$TGT/release/synchrotron-helm-plugin"   /synchrotron-helm-plugin \
+ && cp "target/$TGT/release/synchrotron-kustomize-plugin" /synchrotron-kustomize-plugin \
+ && cp "target/$TGT/release/synchrotron-labeler-plugin" /synchrotron-labeler-plugin
 
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 LABEL org.opencontainers.image.title="synchrotron-server"
 LABEL org.opencontainers.image.source="https://github.com/synchrotron-cd/synchrotron"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
-COPY --from=builder /synchrotron-server /synchrotron-server
+COPY --from=builder /synchrotron-server               /synchrotron-server
+COPY --from=builder /synchrotron-helm-plugin          /synchrotron-helm-plugin
+COPY --from=builder /synchrotron-kustomize-plugin     /synchrotron-kustomize-plugin
+COPY --from=builder /synchrotron-labeler-plugin       /synchrotron-labeler-plugin
 USER nonroot:nonroot
 EXPOSE 8484
 ENTRYPOINT ["/synchrotron-server"]

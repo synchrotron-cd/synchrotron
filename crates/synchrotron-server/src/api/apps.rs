@@ -34,7 +34,8 @@ use serde::{Deserialize, Serialize};
 use synchrotron_core::db::Database;
 use synchrotron_core::events::{EventBus, SystemEvent};
 use synchrotron_types::{
-    AppDestination, AppName, AppSource, AppStatus, Application, ClusterName, RepoUrl, SyncPolicy,
+    AppDestination, AppName, AppSource, AppStatus, Application, ClusterName, PluginRef, RepoUrl,
+    SyncPolicy,
 };
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -128,6 +129,11 @@ pub struct CreateAppRequest {
     pub target_revision: String,
     pub dest_cluster: String,
     pub dest_namespace: String,
+    /// Which configured plugin to render the app's source through.
+    /// Omit (or pass `null`) to fall back to `raw` (read manifests
+    /// straight out of the source directory).
+    #[serde(default)]
+    pub plugin: Option<PluginRef>,
 }
 
 fn default_revision() -> String {
@@ -142,6 +148,20 @@ pub struct UpdateAppRequest {
     pub target_revision: Option<String>,
     pub dest_cluster: Option<String>,
     pub dest_namespace: Option<String>,
+    /// Set to a PluginRef to switch (or set) the render plugin;
+    /// set to `null` to clear back to the default `raw` plugin.
+    /// Omit the field entirely to leave the current plugin alone.
+    #[serde(default, deserialize_with = "deserialize_optional_plugin")]
+    pub plugin: Option<Option<PluginRef>>,
+}
+
+fn deserialize_optional_plugin<'de, D>(de: D) -> Result<Option<Option<PluginRef>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    // serde_json maps a present-but-null value to Some(None) here,
+    // distinguishing "clear the plugin" from "leave it alone".
+    Option::<Option<PluginRef>>::deserialize(de)
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -258,7 +278,7 @@ pub async fn create_app(
             repo_url: RepoUrl(req.repo_url),
             path: req.path,
             target_revision: req.target_revision,
-            plugin: None,
+            plugin: req.plugin,
         },
         destination: AppDestination {
             cluster: ClusterName(req.dest_cluster),
@@ -349,6 +369,11 @@ pub async fn update_app(
     }
     if let Some(v) = req.dest_namespace {
         app.destination.namespace = v;
+    }
+    if let Some(v) = req.plugin {
+        // Some(None) clears, Some(Some(p)) sets, None (the outer
+        // Option being None) leaves the existing plugin alone.
+        app.source.plugin = v;
     }
     app.updated_at = Utc::now();
 

@@ -10,6 +10,7 @@ members = [
     "crates/synchrotron-plugins",
     "crates/synchrotron-helm-plugin",
     "crates/synchrotron-kustomize-plugin",
+    "crates/synchrotron-labeler-plugin",
     "crates/synchrotron-reconcile",
     "crates/synchrotron-health",
     "crates/synchrotron-diff",
@@ -56,6 +57,9 @@ uuid = { version = "1", features = ["v4", "serde"] }
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# OpenAPI / schema derivations
+utoipa = { version = "5", features = ["axum_extras"] }
 
 # Benchmarking
 criterion = { version = "0.5", default-features = false, features = ["plotters", "cargo_bench_support"] }

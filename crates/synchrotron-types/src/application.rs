@@ -41,14 +41,14 @@ fn default_revision() -> String {
     "main".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct PluginRef {
     pub name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parameters: Vec<PluginParam>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct PluginParam {
     pub name: String,
     pub value: String,
