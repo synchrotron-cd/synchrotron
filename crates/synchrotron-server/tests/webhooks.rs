@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use hmac::{Hmac, Mac};
+use hmac::{digest::KeyInit, Hmac, Mac};
 use http_body_util::BodyExt;
 use sha2::Sha256;
 use tokio::sync::Mutex;

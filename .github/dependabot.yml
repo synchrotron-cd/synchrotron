@@ -14,6 +14,11 @@ updates:
         update-types: ["patch"]
       minor:
         update-types: ["minor"]
+    # Hold majors for jsonwebtoken (10.x needs API migration — see
+    # synchrotron-cd-8jk).
+    ignore:
+      - dependency-name: "jsonwebtoken"
+        update-types: ["version-update:semver-major"]
     labels:
       - "dependencies"
       - "rust"

@@ -12,7 +12,7 @@
 //! not accepted — we require the SHA-256 variant because GitHub
 //! itself has deprecated SHA-1 for new webhooks.
 
-use hmac::{Hmac, Mac};
+use hmac::{digest::KeyInit, Hmac, Mac};
 use sha1::Sha1;
 use sha2::Sha256;
 

@@ -2,7 +2,7 @@
 //! computed against known-good payloads to pin the constant-time
 //! comparison path end-to-end.
 
-use hmac::{Hmac, Mac};
+use hmac::{digest::KeyInit, Hmac, Mac};
 use sha1::Sha1;
 use sha2::Sha256;
 

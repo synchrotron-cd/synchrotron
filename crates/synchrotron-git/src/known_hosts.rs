@@ -26,7 +26,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
-use hmac::{Hmac, Mac};
+use hmac::{digest::KeyInit, Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use subtle::ConstantTimeEq;

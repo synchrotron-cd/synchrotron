@@ -26,7 +26,7 @@ use axum::extract::State;
 use axum::http::{Request, StatusCode};
 use axum::routing::post;
 use axum::Router;
-use hmac::{Hmac, Mac};
+use hmac::{digest::KeyInit, Hmac, Mac};
 use http_body_util::BodyExt;
 use sha2::Sha256;
 use tokio::net::TcpListener;
