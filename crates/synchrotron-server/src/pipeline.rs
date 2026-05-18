@@ -399,6 +399,23 @@ async fn render_apps_for_repo(
             }
             Err(e) => {
                 warn!(app = %app_name_str, head = new_head, error = %e, "render failed; desired-store entry unchanged");
+                // Surface the render failure to API consumers via
+                // the SyncOutcome stream so the app's sync_status,
+                // history, notifier, and watch SSE all reflect it.
+                // Without this, render failures are silent (ek4).
+                // The cluster field is the app's configured target;
+                // there's no cluster involvement in a render-stage
+                // failure but consumers expect every SyncOutcome to
+                // be cluster-tagged.
+                bus.publish(SystemEvent::SyncOutcome {
+                    app: app.name.clone(),
+                    cluster: app.destination.cluster.clone(),
+                    success: false,
+                    message: Some(format!("render failed: {e}")),
+                    trigger: "poll".into(),
+                    revision: Some(new_head.to_string()),
+                    resources_synced: 0,
+                });
             }
         }
     }
