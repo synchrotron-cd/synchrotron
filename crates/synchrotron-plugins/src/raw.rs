@@ -37,6 +37,21 @@ pub enum RawLoadError {
 /// or `metadata.name` is an error — silently dropping half-formed
 /// manifests would hide bugs.
 pub fn load_dir(root: &Path) -> Result<Vec<Manifest>, RawLoadError> {
+    // Fail loudly when the directory doesn't exist — otherwise a
+    // typo in `app.source.path` silently renders an empty manifest
+    // set, the planner sees no drift, and the app reports Synced
+    // with zero resources. An existing-but-empty directory is still
+    // a valid no-op (operator's choice). See synchrotron-cd-3wa.
+    if !root.is_dir() {
+        return Err(RawLoadError::Io {
+            path: root.to_path_buf(),
+            source: std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("source path `{}` is not a directory", root.display()),
+            ),
+        });
+    }
+
     let mut files: Vec<PathBuf> = WalkDir::new(root)
         .follow_links(false)
         .into_iter()
@@ -89,6 +104,36 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let out = load_dir(dir.path()).unwrap();
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn missing_dir_is_an_error_not_an_empty_manifest_set() {
+        // 3wa: a typo in app.source.path used to silently render
+        // empty and report Synced. Now it surfaces as NotFound.
+        let dir = TempDir::new().unwrap();
+        let missing = dir.path().join("does-not-exist");
+        match load_dir(&missing) {
+            Err(RawLoadError::Io { source, .. }) => {
+                assert_eq!(source.kind(), std::io::ErrorKind::NotFound);
+            }
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn file_path_instead_of_dir_is_also_an_error() {
+        let dir = TempDir::new().unwrap();
+        let file = write_file(
+            dir.path(),
+            "cm.yaml",
+            "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: x, namespace: y}\n",
+        );
+        match load_dir(&file) {
+            Err(RawLoadError::Io { source, .. }) => {
+                assert_eq!(source.kind(), std::io::ErrorKind::NotFound);
+            }
+            other => panic!("expected NotFound (path-is-file), got {other:?}"),
+        }
     }
 
     #[test]
