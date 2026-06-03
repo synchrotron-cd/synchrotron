@@ -50,7 +50,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # Build amd64-only here — kind nodes are amd64 in CI, no need
       # for the multi-arch QEMU pass that docker.yml does.
