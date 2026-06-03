@@ -99,7 +99,7 @@ jobs:
           ls -lh "$OUT"
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/${{ steps.pkg.outputs.name }}.tar.gz
 
